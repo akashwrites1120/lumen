@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #faf9f7;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #d97706;
+  --primary-hover: #b45309;
+  --primary-foreground: #fffbeb;
+  --secondary: #f4f1ec;
+  --secondary-foreground: #44403c;
+  --muted: #f4f1ec;
+  --muted-foreground: #79716b;
+  --accent: #fdf0dd;
+  --accent-foreground: #92400e;
+  --success: #059669;
+  --success-soft: #ecfdf5;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --border: #e8e4de;
+  --input: #e0dbd3;
+  --ring: rgba(217, 119, 6, 0.35);
+  --glow: rgba(217, 119, 6, 0.14);
+}
+
+.dark {
+  --background: #131211;
+  --foreground: #f2f0ed;
+  --card: #1a1917;
+  --card-foreground: #f2f0ed;
+  --popover: #201e1c;
+  --popover-foreground: #f2f0ed;
+  --primary: #f59e0b;
+  --primary-hover: #fbbf24;
+  --primary-foreground: #1c1917;
+  --secondary: #262421;
+  --secondary-foreground: #d6d3d1;
+  --muted: #242220;
+  --muted-foreground: #a8a29e;
+  --accent: #2c2317;
+  --accent-foreground: #fbbf24;
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.12);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --border: #2a2825;
+  --input: #35322e;
+  --ring: rgba(245, 158, 11, 0.4);
+  --glow: rgba(245, 158, 11, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-border: var(--border);
+  --color-input: var(--input);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-flow: flow 3.2s ease-in-out infinite;
+
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 var(--glow); }
+    70% { box-shadow: 0 0 0 14px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes flow {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)) scale(0.97); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.grain {
+  position: relative;
+}
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: radial-gradient(var(--border) 0.5px, transparent 0.5px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, black, transparent 70%);
+}
