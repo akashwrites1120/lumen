@@ -1,0 +1,30 @@
+{
+  "name": "@lumen/workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"(worker unit tests in phase 1)\" && exit 0",
+    "lint": "echo \"(lint via shared eslint in phase 1)\" && exit 0"
+  },
+  "dependencies": {
+    "@lumen/db": "workspace:*",
+    "@lumen/schemas": "workspace:*",
+    "bullmq": "^5.34.5",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.3",
+    "image-size": "^2.0.0",
+    "ioredis": "^5.4.2",
+    "jszip": "^3.10.1",
+    "node-html-parser": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
