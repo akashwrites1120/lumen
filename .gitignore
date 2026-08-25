@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# runtime data
+.data/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# testing
+coverage/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

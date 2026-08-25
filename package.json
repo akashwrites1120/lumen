@@ -1,0 +1,24 @@
+{
+  "name": "lumen",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI-powered accessibility platform — alt-text generation, image extraction, multi-format conversion with human validation.",
+  "packageManager": "pnpm@10.16.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @lumen/db generate",
+    "db:push": "pnpm --filter @lumen/db push",
+    "fixture:epub": "node scripts/make-fixture-epub.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}
