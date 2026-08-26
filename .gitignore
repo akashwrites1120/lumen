@@ -21,6 +21,7 @@ out/
 
 # testing
 coverage/
+docs/05-status.md
 
 # editors / os
 .vscode/
