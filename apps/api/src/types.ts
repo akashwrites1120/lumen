@@ -8,4 +8,5 @@ export interface AppContext {
   storage: StorageDriver;
   redis: Redis;
   ingestQueue: Queue;
+  draftQueue: Queue;
 }

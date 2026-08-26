@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@lumen/db": "workspace:*",
+    "@lumen/providers": "workspace:*",
     "@lumen/schemas": "workspace:*",
     "bullmq": "^5.34.5",
     "dotenv": "^16.4.7",

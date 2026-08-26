@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Job } from "bullmq";
+import type { Job, Queue } from "bullmq";
 import type { Redis } from "ioredis";
 import { imageSize as sizeOf } from "image-size";
 import { documents, projects, assets, auditEvents, type LumenDb } from "@lumen/db";
@@ -20,6 +20,7 @@ export interface IngestDeps {
   db: LumenDb;
   redis: Redis;
   store: AssetStore;
+  draftQueue?: Queue;
 }
 
 const IMAGE_EXT_MIME: Record<string, string> = {
@@ -153,6 +154,23 @@ export async function processIngest(
       subjectId: documentId,
       detail: { figuresFound, sections: ir.sections.length },
     });
+
+    if (deps.draftQueue && figuresFound > 0) {
+      await db
+        .update(projects)
+        .set({ stage: "drafting", updatedAt: new Date() })
+        .where(eq(projects.id, doc.projectId));
+      const assetRows = await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(eq(assets.documentId, documentId));
+      await Promise.all(
+        assetRows.map((a) =>
+          deps.draftQueue!.add("draft-asset", { assetId: a.id }, { jobId: `draft-${a.id}` })
+        )
+      );
+      emit("building_ir", `Queued ${assetRows.length} image(s) for AI drafting`);
+    }
 
     emit("completed", `Ingested ${ir.sections.length} sections, ${figuresFound} figure(s)`);
     return { figuresFound };

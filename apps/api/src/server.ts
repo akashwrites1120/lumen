@@ -10,7 +10,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerDocumentRoutes, requireSessionUser } from "./routes/documents.js";
 import { registerEventRoutes } from "./routes/events.js";
-import { createIngestQueue, INGEST_QUEUE } from "./queue.js";
+import { createIngestQueue, createDraftQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
 import type { SessionUser } from "./auth/session.js";
 import type { AppContext } from "./types.js";
@@ -45,12 +45,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   const { db, client: pgClient } = createDb(databaseUrl);
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const ingestQueue = createIngestQueue(redisUrl);
+  const draftQueue = createDraftQueue(redisUrl);
 
   const storage = new LocalDiskStorage(
     process.env.STORAGE_LOCAL_ROOT ?? ".data/storage"
   );
 
-  const ctx: AppContext = { db, storage, redis, ingestQueue };
+  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue };
   app.decorate("ctx", ctx);
   app.decorate("requireUser", (req: FastifyRequest) => requireSessionUser(app, ctx, req));
 
@@ -60,12 +61,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerEventRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
-    const counts = await ingestQueue.getJobCounts();
-    return { queue: INGEST_QUEUE, counts };
+    const [ingest, draft] = await Promise.all([
+      ingestQueue.getJobCounts(),
+      draftQueue.getJobCounts(),
+    ]);
+    return { ingest: { queue: INGEST_QUEUE, counts: ingest }, draft: { counts: draft } };
   });
 
   app.addHook("onClose", async () => {
-    await ingestQueue.close();
+    await Promise.allSettled([ingestQueue.close(), draftQueue.close()]);
     redis.disconnect();
     await pgClient.end();
   });
