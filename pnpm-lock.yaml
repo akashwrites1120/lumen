@@ -142,6 +142,9 @@ importers:
       '@lumen/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@lumen/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@lumen/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -192,6 +195,22 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/providers:
+    dependencies:
+      '@lumen/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
