@@ -10,6 +10,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerDocumentRoutes, requireSessionUser } from "./routes/documents.js";
 import { registerEventRoutes } from "./routes/events.js";
+import { registerReviewRoutes } from "./routes/review.js";
 import { createIngestQueue, createDraftQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
 import type { SessionUser } from "./auth/session.js";
@@ -59,6 +60,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerProjectRoutes(app, ctx);
   registerDocumentRoutes(app, ctx);
   registerEventRoutes(app, ctx);
+  registerReviewRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
     const [ingest, draft] = await Promise.all([

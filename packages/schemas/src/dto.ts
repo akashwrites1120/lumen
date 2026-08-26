@@ -57,3 +57,23 @@ export const AssetDTO = z.object({
   createdAt: z.string(),
 });
 export type AssetDTO = z.infer<typeof AssetDTO>;
+
+export const ReviewDecision = z.enum(["approved", "edited", "rejected", "decorative"]);
+export type ReviewDecision = z.infer<typeof ReviewDecision>;
+
+export const ReviewDecisionInput = z
+  .object({
+    decision: ReviewDecision,
+    finalAltText: z.string().max(2000).optional(),
+    feedback: z.string().max(2000).optional(),
+    durationMs: z.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (v) =>
+      v.decision === "approved" ||
+      v.decision === "rejected" ||
+      v.decision === "decorative" ||
+      typeof v.finalAltText === "string",
+    { message: "finalAltText is required for edited decisions" }
+  );
+export type ReviewDecisionInput = z.infer<typeof ReviewDecisionInput>;
