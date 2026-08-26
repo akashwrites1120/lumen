@@ -29,7 +29,7 @@ export function registerProjectRoutes(app: FastifyInstance, ctx: AppContext) {
         assetCount: sql<number>`(
           select count(*)::int from ${assets}
           join ${documents} as d2 on d2.id = ${assets.documentId}
-          where d2.projectId = ${projects.id}
+          where d2.project_id = ${projects.id}
         )`,
       })
       .from(projects)

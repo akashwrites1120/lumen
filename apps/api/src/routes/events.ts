@@ -18,6 +18,7 @@ export function registerEventRoutes(app: FastifyInstance, ctx: AppContext) {
       .limit(1);
     if (owned.length === 0) return reply.code(404).send({ error: "not_found" });
 
+    reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",

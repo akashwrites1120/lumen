@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { Redis } from "ioredis";
 import { imageSize as sizeOf } from "image-size";
@@ -77,9 +77,10 @@ export async function processIngest(
 
     emit("extracting_images", `${epub.images.size} image(s) in manifest`);
     const hrefToAssetId = new Map<string, string>();
+    const checksumToAssetId = new Map<string, string>();
 
     for (const [href, ref] of epub.images) {
-      const buffer = await epub.readBinary(resolveZipPathFrom(href));
+      const buffer = await epub.readBinary(href);
       if (!buffer || buffer.byteLength === 0) {
         job.log(`skipping unreadable image: ${href}`);
         continue;
@@ -111,9 +112,18 @@ export async function processIngest(
           })
           .returning();
 
-        const asset = inserted[0];
-        if (asset) {
-          hrefToAssetId.set(href, asset.id);
+        let assetId: string | undefined = inserted[0]?.id;
+        if (!assetId) {
+          const existing = await db
+            .select({ id: assets.id })
+            .from(assets)
+            .where(and(eq(assets.documentId, documentId), eq(assets.checksumSha256, stored.checksumSha256)))
+            .limit(1);
+          assetId = existing[0]?.id;
+        }
+        if (assetId) {
+          hrefToAssetId.set(href, assetId);
+          checksumToAssetId.set(stored.checksumSha256, assetId);
           figuresFound += 1;
         }
         emit("extracting_images", `Extracted ${basename(href)}`);
@@ -212,17 +222,6 @@ async function setDocState(
 
 function publish(redis: Redis, event: ProgressEvent) {
   void redis.publish(`project:${event.projectId}:events`, JSON.stringify(event));
-}
-
-function resolveZipPathFrom(href: string): string {
-  const parts = decodeURIComponent(href).split("/");
-  const out: string[] = [];
-  for (const part of parts) {
-    if (!part || part === ".") continue;
-    if (part === "..") out.pop();
-    else out.push(part);
-  }
-  return out.join("/");
 }
 
 function extOf(href: string): string {

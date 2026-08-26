@@ -93,7 +93,7 @@ export function registerDocumentRoutes(app: FastifyInstance, ctx: AppContext) {
     await ctx.ingestQueue.add(
       "ingest-document",
       { documentId: doc.id },
-      { jobId: `ingest:${doc.id}` }
+      { jobId: `ingest-${doc.id}` }
     );
     await ctx.db
       .update(documents)
