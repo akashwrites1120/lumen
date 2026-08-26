@@ -2,10 +2,11 @@ import "dotenv/config";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { createDb } from "@lumen/db";
-import { DRAFT_QUEUE, INGEST_QUEUE } from "./queue.js";
+import { DRAFT_QUEUE, EXPORT_QUEUE, INGEST_QUEUE } from "./queue.js";
 import { AssetStore } from "./storage.js";
 import { processIngest, type IngestJobData } from "./ingest.js";
 import { processDraft, type DraftJobData } from "./draft.js";
+import { processExport, type ExportJobData } from "./export/process.js";
 import { resolveVisionProviders } from "@lumen/providers";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -43,9 +44,19 @@ const draftWorker = new Worker<DraftJobData>(
   { connection, concurrency: Number(process.env.DRAFT_CONCURRENCY ?? 4) }
 );
 
+const exportWorker = new Worker<ExportJobData>(
+  EXPORT_QUEUE,
+  async (job) => {
+    console.log(`[export] export ${job.data.exportId} (attempt ${job.attemptsMade + 1})`);
+    return processExport(job, { db, redis: connection, store });
+  },
+  { connection, concurrency: 1 }
+);
+
 for (const [name, worker] of [
   ["ingest", ingestWorker],
   ["draft", draftWorker],
+  ["export", exportWorker],
 ] as const) {
   worker.on("completed", (job) => {
     console.log(`[${name}] completed ${job.id}: ${JSON.stringify(job.returnvalue)}`);
@@ -57,7 +68,12 @@ for (const [name, worker] of [
 
 async function shutdown(signal: string) {
   console.log(`[workers] received ${signal}, shutting down…`);
-  await Promise.allSettled([ingestWorker.close(), draftWorker.close(), draftQueue.close()]);
+  await Promise.allSettled([
+    ingestWorker.close(),
+    draftWorker.close(),
+    exportWorker.close(),
+    draftQueue.close(),
+  ]);
   connection.disconnect();
   await pgClient.end();
   process.exit(0);

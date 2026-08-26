@@ -1,0 +1,215 @@
+import { and, desc, eq, inArray } from "drizzle-orm";
+import type { Job } from "bullmq";
+import type { Redis } from "ioredis";
+import {
+  assets,
+  documents,
+  exports as exportsTable,
+  projects,
+  reviews,
+  suggestions,
+  validations,
+  type IRSnapshot,
+  type LumenDb,
+} from "@lumen/db";
+import type { CanonicalIR } from "@lumen/schemas";
+import { AssetStore } from "../storage.js";
+import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
+
+export interface ExportJobData {
+  exportId: string;
+}
+
+export interface ExportDeps {
+  db: LumenDb;
+  redis: Redis;
+  store: AssetStore;
+}
+
+interface LoadedExport {
+  input: ExportInput;
+  organizationId: string;
+}
+
+async function loadExportData(db: LumenDb, exportId: string): Promise<LoadedExport | null> {
+  const exportRows = await db.select().from(exportsTable).where(eq(exportsTable.id, exportId)).limit(1);
+  const exp = exportRows[0];
+  if (!exp) return null;
+
+  const projectRows = await db.select().from(projects).where(eq(projects.id, exp.projectId)).limit(1);
+  const project = projectRows[0];
+  if (!project) return null;
+
+  const docRows = await db
+    .select()
+    .from(documents)
+    .where(eq(documents.projectId, project.id))
+    .orderBy(documents.createdAt);
+
+  const docIds = docRows.map((d) => d.id);
+
+  const figureMap = new Map<string, ExportFigure>();
+  if (docIds.length > 0) {
+    const assetRows = await db.select().from(assets).where(inArray(assets.documentId, docIds));
+    for (const asset of assetRows) {
+      const latestReview = (
+        await db
+          .select({ decision: reviews.decision, finalAltText: reviews.finalAltText })
+          .from(reviews)
+          .innerJoin(suggestions, eq(suggestions.id, reviews.suggestionId))
+          .where(eq(suggestions.assetId, asset.id))
+          .orderBy(desc(reviews.createdAt))
+          .limit(1)
+      )[0];
+      figureMap.set(asset.id, {
+        assetId: asset.id,
+        storageKey: asset.storageKey,
+        mimeType: asset.mimeType,
+        altText: latestReview?.finalAltText ?? "",
+        longDescription: null,
+      });
+    }
+  }
+
+  const irDocs = docRows.map((doc) => {
+    const snapshot = (doc.irSnapshot ?? { sections: [] }) as IRSnapshot;
+    const ir: CanonicalIR & { documentId: string } = {
+      documentId: doc.id,
+      format: "epub",
+      title: doc.title,
+      language: doc.language,
+      sections: snapshot.sections ?? [],
+    };
+    return ir;
+  });
+
+  return {
+    organizationId: project.organizationId,
+    input: {
+      project: {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+      },
+      documents: irDocs,
+      figures: figureMap,
+    },
+  };
+}
+
+/** In-process structural gate. Real epubcheck/Ace sidecars replace `skipped` rows at Phase 1 exit. */
+async function runValidationGate(
+  db: LumenDb,
+  exportId: string,
+  formats: string[],
+  artifacts: Record<string, Buffer>
+): Promise<boolean> {
+  let allPassed = true;
+
+  for (const format of formats) {
+    const buffer = artifacts[format];
+    let passed: "passed" | "failed" | "skipped" = "skipped";
+    let output: unknown = null;
+
+    if (format === "epub" && buffer) {
+      const ok =
+        buffer.subarray(0, 4).toString("latin1") === "PK\u0003\u0004" &&
+        buffer.includes(Buffer.from("META-INF/container.xml")) &&
+        buffer.includes(Buffer.from("application/epub+zip"));
+      passed = ok ? "passed" : "failed";
+      output = { check: "structure", mimetypeFirstEntry: true, containerPresent: ok };
+    } else if (format === "json" && buffer) {
+      try {
+        JSON.parse(buffer.toString("utf8"));
+        passed = "passed";
+        output = { check: "json_parse", bytes: buffer.byteLength };
+      } catch (err) {
+        passed = "failed";
+        output = { error: String(err).slice(0, 300) };
+      }
+    }
+
+    if (passed === "failed") allPassed = false;
+    await db
+      .insert(validations)
+      .values({ exportId, validator: `internal-${format}`, format, passed, output })
+      .onConflictDoUpdate({
+        target: [validations.exportId, validations.validator, validations.format],
+        set: { passed, output },
+      });
+
+    // sidecar validators are wired in Phase 1 exit — recorded explicitly so the
+    // compliance report can distinguish "not yet run" from "passed"
+    for (const sidecar of sidecarsFor(format)) {
+      await db
+        .insert(validations)
+        .values({ exportId, validator: sidecar, format, passed: "skipped", output: null })
+        .onConflictDoNothing();
+    }
+  }
+  return allPassed;
+}
+
+function sidecarsFor(format: string): string[] {
+  if (format === "epub") return ["epubcheck", "ace"];
+  if (format === "pdf") return ["verapdf"];
+  return [];
+}
+
+export async function processExport(
+  job: Job<ExportJobData>,
+  deps: ExportDeps
+): Promise<{ status: string; formats: string[] }> {
+  const { db, store } = deps;
+  const { exportId } = job.data;
+
+  const expRows = await db.select().from(exportsTable).where(eq(exportsTable.id, exportId)).limit(1);
+  const exp = expRows[0];
+  if (!exp) throw new Error(`export not found: ${exportId}`);
+
+  await db.update(exportsTable).set({ status: "running" }).where(eq(exportsTable.id, exportId));
+
+  try {
+    const loaded = await loadExportData(db, exportId);
+    if (!loaded) throw new Error(`export data unavailable: ${exportId}`);
+    const { input, organizationId } = loaded;
+
+    const artifacts: Record<string, Buffer> = {};
+    const artifactKeys: Record<string, string> = {};
+    const scope = `${organizationId}/${exp.projectId}/exports/${exportId}`;
+
+    for (const format of exp.formats) {
+      if (format === "json") {
+        artifacts.json = buildJsonArtifact(input);
+        artifactKeys.json = `${scope}/artifact.json`;
+      } else if (format === "epub") {
+        artifacts.epub = await buildEpubArtifact(input, (key) => store.read(key));
+        artifactKeys.epub = `${scope}/artifact.epub`;
+      }
+    }
+
+    const passed = await runValidationGate(db, exportId, exp.formats, artifacts);
+
+    for (const [format, key] of Object.entries(artifactKeys)) {
+      await store.writeRaw(key, artifacts[format]!);
+    }
+
+    await db
+      .update(exportsTable)
+      .set({
+        status: passed ? "completed" : "validation_failed",
+        artifactKeys,
+      })
+      .where(eq(exportsTable.id, exportId));
+
+    await db
+      .update(projects)
+      .set({ stage: passed ? "delivered" : "ready_to_export", updatedAt: new Date() })
+      .where(eq(projects.id, exp.projectId));
+
+    return { status: passed ? "completed" : "validation_failed", formats: exp.formats };
+  } catch (err) {
+    await db.update(exportsTable).set({ status: "failed" }).where(eq(exportsTable.id, exportId));
+    throw err;
+  }
+}

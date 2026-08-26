@@ -11,7 +11,8 @@ import { registerProjectRoutes } from "./routes/projects.js";
 import { registerDocumentRoutes, requireSessionUser } from "./routes/documents.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerReviewRoutes } from "./routes/review.js";
-import { createIngestQueue, createDraftQueue, INGEST_QUEUE } from "./queue.js";
+import { registerExportRoutes } from "./routes/exports.js";
+import { createIngestQueue, createDraftQueue, createExportQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
 import type { SessionUser } from "./auth/session.js";
 import type { AppContext } from "./types.js";
@@ -47,12 +48,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const ingestQueue = createIngestQueue(redisUrl);
   const draftQueue = createDraftQueue(redisUrl);
+  const exportQueue = createExportQueue(redisUrl);
 
   const storage = new LocalDiskStorage(
     process.env.STORAGE_LOCAL_ROOT ?? ".data/storage"
   );
 
-  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue };
+  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue, exportQueue };
   app.decorate("ctx", ctx);
   app.decorate("requireUser", (req: FastifyRequest) => requireSessionUser(app, ctx, req));
 
@@ -61,6 +63,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerDocumentRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   registerReviewRoutes(app, ctx);
+  registerExportRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
     const [ingest, draft] = await Promise.all([
@@ -71,7 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.addHook("onClose", async () => {
-    await Promise.allSettled([ingestQueue.close(), draftQueue.close()]);
+    await Promise.allSettled([ingestQueue.close(), draftQueue.close(), exportQueue.close()]);
     redis.disconnect();
     await pgClient.end();
   });

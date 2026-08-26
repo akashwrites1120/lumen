@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 
 export const INGEST_QUEUE = "ingest.q";
 export const DRAFT_QUEUE = "draft.q";
+export const EXPORT_QUEUE = "export.q";
 
 export function createQueue(redisUrl: string, name: string): Queue {
   return new Queue(name, {

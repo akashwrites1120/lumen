@@ -9,4 +9,5 @@ export interface AppContext {
   redis: Redis;
   ingestQueue: Queue;
   draftQueue: Queue;
+  exportQueue: Queue;
 }

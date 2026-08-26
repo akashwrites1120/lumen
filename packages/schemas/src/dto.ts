@@ -77,3 +77,11 @@ export const ReviewDecisionInput = z
     { message: "finalAltText is required for edited decisions" }
   );
 export type ReviewDecisionInput = z.infer<typeof ReviewDecisionInput>;
+
+export const ExportFormat = z.enum(["json", "epub"]);
+export type ExportFormat = z.infer<typeof ExportFormat>;
+
+export const CreateExportInput = z.object({
+  formats: z.array(ExportFormat).min(1).max(2),
+});
+export type CreateExportInput = z.infer<typeof CreateExportInput>;

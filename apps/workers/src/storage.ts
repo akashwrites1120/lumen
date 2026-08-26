@@ -33,6 +33,14 @@ export class AssetStore {
     return { storageKey, byteSize: body.byteLength, checksumSha256 };
   }
 
+  /** Writes at an exact storage key — used for export artifacts. */
+  async writeRaw(storageKey: string, body: Buffer): Promise<void> {
+    if (storageKey.includes("..")) throw new Error(`invalid asset key: ${storageKey}`);
+    const target = this.abs(storageKey);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, body);
+  }
+
   pathOf(storageKey: string): string {
     return join(this.root, storageKey);
   }

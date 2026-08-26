@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 
 export const INGEST_QUEUE = "ingest.q";
 export const DRAFT_QUEUE = "draft.q";
+export const EXPORT_QUEUE = "export.q";
 
 const DEFAULT_JOB_OPTIONS = {
   attempts: 3,
@@ -24,5 +25,12 @@ export function createDraftQueue(redisUrl: string) {
       ...DEFAULT_JOB_OPTIONS,
       backoff: { type: "exponential", delay: 2000 },
     },
+  });
+}
+
+export function createExportQueue(redisUrl: string) {
+  return new Queue(EXPORT_QUEUE, {
+    connection: { url: redisUrl },
+    defaultJobOptions: { ...DEFAULT_JOB_OPTIONS, attempts: 2 },
   });
 }
