@@ -1,8 +1,15 @@
 "use client";
 
-import type { ProgressEvent, PublicUser } from "@lumen/schemas";
+import type { ProgressEvent, PublicUser, ReviewDecision } from "@lumen/schemas";
 import { useAuthStore } from "./auth-store";
-import type { AssetRow, DocumentRow, ProjectDetail, ProjectSummary } from "./types";
+import type {
+  AssetRow,
+  DocumentRow,
+  ExportRow,
+  ProjectDetail,
+  ProjectSummary,
+  ReviewFeed,
+} from "./types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -116,6 +123,61 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, "asset_fetch_failed");
     const blob = await res.blob();
     return URL.createObjectURL(blob);
+  },
+
+  listReview: (documentId: string) =>
+    request<ReviewFeed>(`/v1/documents/${documentId}/review`),
+
+  submitDecision: (
+    assetId: string,
+    input: {
+      decision: ReviewDecision;
+      finalAltText?: string;
+      feedback?: string;
+      durationMs?: number;
+    }
+  ) =>
+    request<{ review: unknown }>(`/v1/assets/${assetId}/decision`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  regenerate: (assetId: string) =>
+    request<{ queued: boolean }>(`/v1/assets/${assetId}/regenerate`, {
+      method: "POST",
+    }),
+
+  requestExport: (projectId: string, formats: string[]) =>
+    request<{ export: ExportRow }>(`/v1/projects/${projectId}/exports`, {
+      method: "POST",
+      body: JSON.stringify({ formats }),
+    }),
+
+  listExports: (projectId: string) =>
+    request<{ exports: ExportRow[] }>(`/v1/projects/${projectId}/exports`),
+
+  reviewSummary: (projectId: string) =>
+    request<{
+      summary: Record<string, number>;
+      stage: string | null;
+    }>(`/v1/projects/${projectId}/review-summary`),
+
+  downloadArtifactBlobUrl: async (
+    exportId: string,
+    format: string
+  ): Promise<{ url: string; filename: string }> => {
+    const res = await fetch(
+      `${API_BASE}/v1/exports/${exportId}/artifact/${format}`,
+      { headers: authHeaders() }
+    );
+    if (!res.ok) throw new ApiError(res.status, "artifact_fetch_failed");
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      url: URL.createObjectURL(blob),
+      filename: match?.[1] ?? `export.${format}`,
+    };
   },
 };
 

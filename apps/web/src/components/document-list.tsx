@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ImageOff } from "lucide-react";
+import { ChevronDown, ImageOff, PenTool } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import type { AssetRow, DocumentRow } from "@/lib/types";
@@ -78,6 +79,15 @@ function DocumentRowItem({
           )}
           {state.text}
         </Badge>
+        {doc.state === "ingested" && (
+          <Link
+            href={`/documents/${doc.id}/review`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+          >
+            <PenTool className="h-3.5 w-3.5" /> Review
+          </Link>
+        )}
         <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
           <ChevronDown className="h-4 w-4 text-muted-foreground" />
         </motion.span>

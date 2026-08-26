@@ -9,6 +9,7 @@ import { AppHeader } from "@/components/app-header";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { DocumentList } from "@/components/document-list";
 import { EventFeed } from "@/components/event-feed";
+import { ExportPanel } from "@/components/export-panel";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import type { DocumentRow, ProjectDetail } from "@/lib/types";
@@ -132,7 +133,9 @@ export default function ProjectPage() {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.22, duration: 0.45 }}
+            className="space-y-6"
           >
+            <ExportPanel projectId={projectId} />
             {projectId && <EventFeed projectId={projectId} />}
           </motion.aside>
         </div>
