@@ -15,6 +15,7 @@ import {
 import type { CanonicalIR } from "@lumen/schemas";
 import { AssetStore } from "../storage.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
+import { runAce, runEpubCheck, type ValidatorOutcome } from "./validators.js";
 
 export interface ExportJobData {
   exportId: string;
@@ -97,7 +98,7 @@ async function loadExportData(db: LumenDb, exportId: string): Promise<LoadedExpo
   };
 }
 
-/** In-process structural gate. Real epubcheck/Ace sidecars replace `skipped` rows at Phase 1 exit. */
+/** Structural gate in-process, then real sidecar validators when tooling is configured. */
 async function runValidationGate(
   db: LumenDb,
   exportId: string,
@@ -138,21 +139,42 @@ async function runValidationGate(
         set: { passed, output },
       });
 
-    // sidecar validators are wired in Phase 1 exit — recorded explicitly so the
-    // compliance report can distinguish "not yet run" from "passed"
-    for (const sidecar of sidecarsFor(format)) {
+    for (const outcome of await sidecarOutcomes(format, artifacts)) {
+      if (outcome.passed === "failed") allPassed = false;
       await db
         .insert(validations)
-        .values({ exportId, validator: sidecar, format, passed: "skipped", output: null })
-        .onConflictDoNothing();
+        .values({
+          exportId,
+          validator: outcome.validator,
+          format: outcome.format,
+          passed: outcome.passed,
+          output: outcome.output,
+        })
+        .onConflictDoUpdate({
+          target: [validations.exportId, validations.validator, validations.format],
+          set: { passed: outcome.passed, output: outcome.output },
+        });
     }
   }
   return allPassed;
 }
 
-function sidecarsFor(format: string): string[] {
-  if (format === "epub") return ["epubcheck", "ace"];
-  if (format === "pdf") return ["verapdf"];
+async function sidecarOutcomes(
+  format: string,
+  artifacts: Record<string, Buffer>
+): Promise<ValidatorOutcome[]> {
+  if (format === "epub" && artifacts.epub) {
+    const [epubcheck, ace] = await Promise.all([
+      runEpubCheck(artifacts.epub),
+      runAce(artifacts.epub),
+    ]);
+    return [epubcheck, ace];
+  }
+  if (format === "pdf") {
+    return [
+      { validator: "verapdf", format: "pdf", passed: "skipped", output: { reason: "pdf/ua pipeline arrives in Phase 3" } },
+    ];
+  }
   return [];
 }
 
