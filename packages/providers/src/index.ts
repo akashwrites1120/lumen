@@ -1,5 +1,6 @@
 import { MockVisionProvider } from "./mock.js";
 import { OpenAiVisionProvider } from "./openai.js";
+import { AnthropicVisionProvider } from "./anthropic.js";
 import type { VisionProvider } from "./types.js";
 
 export type { AltTextDraft, DescribeRequest, VisionInput, VisionProvider } from "./types.js";
@@ -8,12 +9,17 @@ export type { FailoverOptions } from "./failover.js";
 export { MockVisionProvider } from "./mock.js";
 export { OpenAiVisionProvider } from "./openai.js";
 export type { OpenAiAdapterConfig } from "./openai.js";
+export { AnthropicVisionProvider } from "./anthropic.js";
+export type { AnthropicAdapterConfig } from "./anthropic.js";
 
 export interface ProviderEnv {
   AI_PROVIDER_ORDER?: string;
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   OPENAI_VISION_MODEL?: string;
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_BASE_URL?: string;
+  ANTHROPIC_VISION_MODEL?: string;
 }
 
 /**
@@ -36,6 +42,15 @@ export function resolveVisionProviders(env: ProviderEnv): VisionProvider[] {
           model: env.OPENAI_VISION_MODEL,
         }),
     ],
+    [
+      "anthropic",
+      () =>
+        new AnthropicVisionProvider({
+          apiKey: env.ANTHROPIC_API_KEY ?? "",
+          baseUrl: env.ANTHROPIC_BASE_URL,
+          model: env.ANTHROPIC_VISION_MODEL,
+        }),
+    ],
   ]);
 
   const order = (env.AI_PROVIDER_ORDER ?? "")
@@ -43,7 +58,11 @@ export function resolveVisionProviders(env: ProviderEnv): VisionProvider[] {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  const names = order.length > 0 ? order : env.OPENAI_API_KEY ? ["openai", "mock"] : ["mock"];
+  const names = order.length > 0
+    ? order
+    : env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY
+      ? [env.OPENAI_API_KEY ? "openai" : "anthropic", "mock"]
+      : ["mock"];
 
   const providers: VisionProvider[] = [];
   for (const name of names) {

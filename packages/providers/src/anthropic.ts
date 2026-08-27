@@ -6,21 +6,19 @@ import type {
   VisionInput,
   VisionProvider,
 } from "./types.js";
+import { draftSchema } from "./openai.js";
 
-export const draftSchema = z.object({
-  image_class: ImageClass,
-  alt_text: z.string().min(1),
-  long_description: z.string().nullable().optional(),
-  confidence: z.number().min(0).max(100),
-});
-
-export interface OpenAiAdapterConfig {
+export interface AnthropicAdapterConfig {
   apiKey: string;
   baseUrl?: string;
   model?: string;
 }
 
-const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_MODEL = "claude-3-5-sonnet-latest";
+
+const responseSchema = z.object({
+  content: z.array(z.object({ type: z.string(), text: z.string().optional() })),
+});
 
 function systemPrompt(req: DescribeRequest): string {
   const maxAlt = req.styleGuide?.maxAltChars ?? 125;
@@ -34,7 +32,7 @@ function systemPrompt(req: DescribeRequest): string {
     req.styleGuide?.includeLongDescription === false
       ? "Set long_description to null."
       : "Provide long_description (2-6 sentences) when the image is complex (chart/diagram/table/infographic), else null.",
-    "Use class \"decorative\" only for pure ornament; then set alt_text to the empty string.",
+    'Use class "decorative" only for pure ornament; then set alt_text to the empty string.',
   ].join("\n");
 }
 
@@ -52,15 +50,15 @@ function userPrompt(req: DescribeRequest): string {
   ].join("\n");
 }
 
-export class OpenAiVisionProvider implements VisionProvider {
+export class AnthropicVisionProvider implements VisionProvider {
   readonly name: string;
   readonly model: string;
   private readonly baseUrl: string;
 
-  constructor(private readonly config: OpenAiAdapterConfig) {
-    this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  constructor(private readonly config: AnthropicAdapterConfig) {
+    this.baseUrl = (config.baseUrl ?? "https://api.anthropic.com").replace(/\/$/, "");
     this.model = config.model ?? DEFAULT_MODEL;
-    this.name = this.baseUrl.includes("openai.com") ? "openai" : new URL(this.baseUrl).host;
+    this.name = this.baseUrl.includes("anthropic.com") ? "anthropic" : new URL(this.baseUrl).host;
   }
 
   isConfigured(): boolean {
@@ -75,29 +73,38 @@ export class OpenAiVisionProvider implements VisionProvider {
   async describe(req: DescribeRequest): Promise<AltTextDraft> {
     if (!this.isConfigured()) throw new Error(`${this.name}: missing api key`);
 
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
+    // anthropic rejects svg; degrade to png raster assumption is unsafe — fail fast
+    if (req.image.mimeType === "image/svg+xml") {
+      throw new Error(`${this.name}: svg input unsupported`);
+    }
+    const mediaType = req.image.mimeType.startsWith("image/") ? req.image.mimeType : null;
+    if (!mediaType) throw new Error(`${this.name}: unsupported media ${req.image.mimeType}`);
+
+    const res = await fetch(`${this.baseUrl}/v1/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${this.config.apiKey}`,
+        "x-api-key": this.config.apiKey,
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
         model: this.model,
+        max_tokens: 1024,
         temperature: 0.2,
-        response_format: { type: "json_object" },
+        system: systemPrompt(req),
         messages: [
-          { role: "system", content: systemPrompt(req) },
           {
             role: "user",
             content: [
-              { type: "text", text: userPrompt(req) },
               {
-                type: "image_url",
-                image_url: {
-                  url: `data:${req.image.mimeType};base64,${req.image.bytes.toString("base64")}`,
-                  detail: "low",
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: mediaType,
+                  data: req.image.bytes.toString("base64"),
                 },
               },
+              { type: "text", text: userPrompt(req) },
             ],
           },
         ],
@@ -110,15 +117,12 @@ export class OpenAiVisionProvider implements VisionProvider {
       throw new Error(`${this.name} http ${res.status}: ${body.slice(0, 300)}`);
     }
 
-    const payload = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = payload.choices?.[0]?.message?.content;
-    if (!content) throw new Error(`${this.name}: empty completion`);
-
+    const payload = responseSchema.parse(await res.json());
+    const text =
+      payload.content.find((c) => c.type === "text" && c.text)?.text ?? "";
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(text.trim().replace(/^```json\s*|```$/g, ""));
     } catch {
       throw new Error(`${this.name}: non-JSON completion`);
     }
