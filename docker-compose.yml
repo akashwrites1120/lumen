@@ -44,6 +44,36 @@ services:
       - "4010:4010"
     mem_limit: 512m
 
+  # DAISY Ace sidecar — requires the Ace bundle (see docker/validator-ace/Dockerfile):
+  #   docker compose --profile validators build --build-arg ACE_BUNDLE_URL=<url> validator-ace
+  validator-ace:
+    build:
+      context: ./docker/validator-ace
+      args:
+        ACE_BUNDLE_URL: ""
+    image: lumen/validator-ace
+    container_name: lumen-validator-ace
+    profiles: ["validators"]
+    ports:
+      - "4011:4011"
+    mem_limit: 1g
+
+  # S3-compatible object storage for local dev (STORAGE_DRIVER=s3)
+  minio:
+    image: minio/minio:latest
+    container_name: lumen-minio
+    profiles: ["s3"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: lumen
+      MINIO_ROOT_PASSWORD: lumen-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - lumen-miniodata:/data
+
 volumes:
   lumen-pgdata:
   lumen-redisdata:
+  lumen-miniodata:
