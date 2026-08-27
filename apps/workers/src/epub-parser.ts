@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { parse, HTMLElement } from "node-html-parser";
 
 export interface ParsedImageRef {
+  /** Zip-resolved path — the canonical key shared with figure blocks. */
   href: string;
   mediaType: string;
 }
@@ -42,23 +43,32 @@ export async function parseEpub(buffer: Buffer): Promise<ParsedEpub> {
   const language =
     firstTagText(opfXml, "dc:language") ?? firstTagText(opfXml, "language") ?? "en";
 
-  const manifestItems = parseManifest(opfXml, opfDir);
+  const manifestItems = parseManifest(opfXml);
+  const isNav = (item: ManifestItem) =>
+    /\bproperties="[^"]*\bnav\b/.test(item.rawTag ?? "") ||
+    /\bepub:type="[^"]*\btoc\b/.test(item.rawTag ?? "");
+  const zipPathOf = (item: ManifestItem) => resolveZipPath(opfDir, item.href);
+
   const spineHrefs = parseSpine(opfXml)
     .map((idref) => manifestItems.get(idref))
-    .filter((item): item is ManifestItem => !!item && XHTML_MEDIA.includes(item.mediaType))
-    .map((item) => item.href);
+    .filter(
+      (item): item is ManifestItem =>
+        !!item && XHTML_MEDIA.includes(item.mediaType) && !isNav(item)
+    )
+    .map((item) => zipPathOf(item));
 
   const images = new Map<string, ParsedImageRef>();
   for (const item of manifestItems.values()) {
     if (item.mediaType.startsWith("image/")) {
-      images.set(item.href, { href: item.href, mediaType: item.mediaType });
+      const resolved = zipPathOf(item);
+      images.set(resolved, { href: resolved, mediaType: item.mediaType });
     }
   }
 
   const sections: ParsedSection[] = [];
-  for (const [index, href] of spineHrefs.entries()) {
-    const html = await readEntry(zip, resolveZipPath(opfDir, href));
-    sections.push(extractSection(html, href, index));
+  for (const [index, zipPath] of spineHrefs.entries()) {
+    const html = await readEntry(zip, zipPath);
+    sections.push(extractSection(html, zipPath, index));
   }
 
   async function readBinary(href: string): Promise<Buffer | null> {
@@ -74,6 +84,7 @@ interface ManifestItem {
   id: string;
   href: string;
   mediaType: string;
+  rawTag?: string;
 }
 
 function extractOpfPath(containerXml: string): string {
@@ -82,7 +93,7 @@ function extractOpfPath(containerXml: string): string {
   return match[1];
 }
 
-function parseManifest(opfXml: string, opfDir: string): Map<string, ManifestItem> {
+function parseManifest(opfXml: string): Map<string, ManifestItem> {
   const items = new Map<string, ManifestItem>();
   const re = /<item\b[^>]*>/g;
   let m: RegExpExecArray | null;
@@ -92,8 +103,7 @@ function parseManifest(opfXml: string, opfDir: string): Map<string, ManifestItem
     const href = attr(tag, "href");
     const mediaType = attr(tag, "media-type");
     if (id && href && mediaType) {
-      items.set(id, { id, href: decodeURIComponent(href), mediaType });
-      void opfDir;
+      items.set(id, { id, href: decodeURIComponent(href), mediaType, rawTag: tag });
     }
   }
   return items;
@@ -109,13 +119,14 @@ function parseSpine(opfXml: string): string[] {
   return ids;
 }
 
-function extractSection(html: string, href: string, index: number): ParsedSection {
+function extractSection(html: string, sectionZipPath: string, index: number): ParsedSection {
   const root = parse(html);
   const title =
     root.querySelector("h1")?.textContent.trim() ??
     root.querySelector("title")?.textContent.trim() ??
     `Section ${index + 1}`;
 
+  const sectionDir = posixDir(sectionZipPath);
   const blocks: SectionBlock[] = [];
   const body = root.querySelector("body") ?? root;
 
@@ -169,14 +180,17 @@ function extractSection(html: string, href: string, index: number): ParsedSectio
       img.getAttribute("xlink:href") ??
       img.getAttribute("href");
     if (!rawSrc) return;
+    // resolve relative to the containing document so the key matches the
+    // zip-resolved image manifest keys
+    const resolved = resolveZipPath(sectionDir, decodeURIComponent(rawSrc.split("#")[0]!));
     blocks.push({
       kind: "figure",
-      assetHref: decodeURIComponent(rawSrc.split("#")[0]!),
+      assetHref: resolved,
       alt: img.getAttribute("alt") ?? null,
     });
   }
 
-  return { id: `sec-${index}`, title, sourceHref: href, blocks: blocks.filter(keepMeaningful) };
+  return { id: `sec-${index}`, title, sourceHref: sectionZipPath, blocks: blocks.filter(keepMeaningful) };
 
   function keepMeaningful(b: SectionBlock): boolean {
     if (b.kind === "figure") return true;
