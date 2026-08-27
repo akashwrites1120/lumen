@@ -4,10 +4,18 @@ import { MAX_UPLOAD_BYTES, ProgressEvent } from "@lumen/schemas";
 import type { FastifyInstance } from "fastify";
 import { publishProgress } from "../events.js";
 import { INGEST_QUEUE } from "../queue.js";
+import { scanBuffer } from "../security/scan.js";
 import { resolveSession, type SessionUser } from "../auth/session.js";
 import type { AppContext } from "../types.js";
 
-const EPUB_MIME = "application/epub+zip";
+const ACCEPTED_TYPES = [
+  { ext: ".epub", mime: "application/epub+zip" },
+  {
+    ext: ".docx",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  },
+  { ext: ".pdf", mime: "application/pdf" },
+] as const;
 
 export async function requireSessionUser(
   app: FastifyInstance,
@@ -46,11 +54,14 @@ export function registerDocumentRoutes(app: FastifyInstance, ctx: AppContext) {
     const file = await req.file({ limits: { fileSize: MAX_UPLOAD_BYTES } });
     if (!file) return reply.code(400).send({ error: "file_required" });
 
-    const isEpub = file.mimetype === EPUB_MIME || file.filename.toLowerCase().endsWith(".epub");
-    if (!isEpub) {
+    const lowerName = file.filename.toLowerCase();
+    const accepted = ACCEPTED_TYPES.find(
+      (t) => file.mimetype === t.mime || lowerName.endsWith(t.ext)
+    );
+    if (!accepted) {
       return reply.code(415).send({
         error: "unsupported_media_type",
-        detail: "Phase 0 accepts EPUB only. PDF/DOCX arrive in Phase 1.",
+        detail: "Accepted formats: EPUB, DOCX, PDF.",
       });
     }
 
@@ -59,10 +70,23 @@ export function registerDocumentRoutes(app: FastifyInstance, ctx: AppContext) {
       return reply.code(413).send({ error: "payload_too_large" });
     }
 
+    const scan = await scanBuffer(buffer);
+    if (!scan.clean) {
+      await ctx.db.insert(auditEvents).values({
+        organizationId: user.organizationId,
+        actorUserId: user.id,
+        action: "document.upload_rejected_threat",
+        subjectType: "document",
+        subjectId: file.filename,
+        detail: { engine: scan.engine, verdict: scan.detail },
+      });
+      return reply.code(422).send({ error: "malware_detected", engine: scan.engine });
+    }
+
     const stored = await ctx.storage.put({
       scope: `${user.organizationId}/${id}/sources`,
       filename: file.filename,
-      contentType: EPUB_MIME,
+      contentType: accepted.mime,
       body: buffer,
     });
 
@@ -71,7 +95,7 @@ export function registerDocumentRoutes(app: FastifyInstance, ctx: AppContext) {
       .values({
         projectId: id,
         filename: file.filename,
-        mimeType: EPUB_MIME,
+        mimeType: accepted.mime,
         sizeBytes: stored.byteSize,
         checksumSha256: stored.checksumSha256,
         storageKey: stored.storageKey,
