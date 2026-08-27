@@ -10,4 +10,5 @@ export interface AppContext {
   ingestQueue: Queue;
   draftQueue: Queue;
   exportQueue: Queue;
+  webhookQueue: Queue;
 }

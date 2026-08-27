@@ -12,6 +12,7 @@ import {
 import { parseEpub, type ParsedDocument, type ParsedSection, type SectionBlock } from "./epub-parser.js";
 import { parseDocx } from "./docx-parser.js";
 import { parsePdf } from "./pdf-parser.js";
+import { dispatchWebhookEvent } from "./webhook.js";
 import type { AssetStore } from "./storage.js";
 
 export interface IngestJobData {
@@ -23,6 +24,7 @@ export interface IngestDeps {
   redis: Redis;
   store: AssetStore;
   draftQueue?: Queue;
+  webhookQueue?: Queue;
 }
 
 const IMAGE_EXT_MIME: Record<string, string> = {
@@ -183,6 +185,15 @@ export async function processIngest(
     }
 
     emit("completed", `Ingested ${ir.sections.length} sections, ${figuresFound} figure(s)`);
+
+    await dispatchWebhookEvent(db, deps.webhookQueue, orgId, "document.ingested", {
+      documentId,
+      projectId: doc.projectId,
+      filename: doc.filename,
+      sections: ir.sections.length,
+      figuresFound,
+    });
+
     return { figuresFound };
   } catch (err) {
     await setDocState(db, documentId, "failed", String(err instanceof Error ? err.message : err));

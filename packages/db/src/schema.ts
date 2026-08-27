@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -221,6 +222,22 @@ export const auditEvents = pgTable(
       .default(sql`now()`),
   },
   (t) => [index("audit_events_subject_idx").on(t.subjectType, t.subjectId)]
+);
+
+export const webhookEndpoints = pgTable(
+  "webhook_endpoints",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    secret: text("secret").notNull(),
+    events: jsonb("events").$type<string[]>().notNull().default(["*"]),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("webhook_endpoints_org_idx").on(t.organizationId)]
 );
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({

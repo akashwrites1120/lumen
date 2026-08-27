@@ -12,6 +12,7 @@
     "lint": "echo \"(lint via shared eslint in phase 1)\" && exit 0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1118.0",
     "@lumen/db": "workspace:*",
     "@lumen/providers": "workspace:*",
     "@lumen/schemas": "workspace:*",

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { Job } from "bullmq";
+import type { Job, Queue } from "bullmq";
 import type { Redis } from "ioredis";
 import {
   assets,
@@ -14,8 +14,9 @@ import {
 } from "@lumen/db";
 import type { CanonicalIR } from "@lumen/schemas";
 import { AssetStore } from "../storage.js";
+import { dispatchWebhookEvent } from "../webhook.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
-import { runAce, runEpubCheck, type ValidatorOutcome } from "./validators.js";
+import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 
 export interface ExportJobData {
   exportId: string;
@@ -25,6 +26,7 @@ export interface ExportDeps {
   db: LumenDb;
   redis: Redis;
   store: AssetStore;
+  webhookQueue?: Queue;
 }
 
 interface LoadedExport {
@@ -188,6 +190,7 @@ export async function processExport(
   const expRows = await db.select().from(exportsTable).where(eq(exportsTable.id, exportId)).limit(1);
   const exp = expRows[0];
   if (!exp) throw new Error(`export not found: ${exportId}`);
+  const { webhookQueue } = deps;
 
   await db.update(exportsTable).set({ status: "running" }).where(eq(exportsTable.id, exportId));
 
@@ -228,6 +231,13 @@ export async function processExport(
       .update(projects)
       .set({ stage: passed ? "delivered" : "ready_to_export", updatedAt: new Date() })
       .where(eq(projects.id, exp.projectId));
+
+    await dispatchWebhookEvent(db, webhookQueue, organizationId, "export.completed", {
+      exportId,
+      projectId: exp.projectId,
+      status: passed ? "completed" : "validation_failed",
+      formats: exp.formats,
+    });
 
     return { status: passed ? "completed" : "validation_failed", formats: exp.formats };
   } catch (err) {
