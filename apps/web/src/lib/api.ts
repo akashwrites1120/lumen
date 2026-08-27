@@ -183,6 +183,20 @@ export const api = {
       filename: match?.[1] ?? `export.${format}`,
     };
   },
+
+  downloadReportBlobUrl: async (exportId: string): Promise<{ url: string; filename: string }> => {
+    const res = await fetch(`${API_BASE}/v1/exports/${exportId}/report`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new ApiError(res.status, "report_fetch_failed");
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      url: URL.createObjectURL(blob),
+      filename: match?.[1] ?? `compliance-report-${exportId.slice(0, 8)}.json`,
+    };
+  },
 };
 
 export function subscribeProjectEvents(

@@ -67,6 +67,7 @@ export default function ReviewWorkbenchPage() {
   const current: ReviewItem | undefined = pending[cursor] ?? pending[pending.length - 1];
   const done = feed ? feed.counts.approved : 0;
   const total = feed ? feed.counts.total : 0;
+  const highLane = pending.filter((i) => i.suggestion && laneOf(i) === "high");
 
   React.useEffect(() => {
     shownAtRef.current = Date.now();
@@ -185,6 +186,24 @@ export default function ReviewWorkbenchPage() {
             <Eye className="mr-1 h-3 w-3" />
             {done}/{total} approved
           </Badge>
+          {highLane.length > 1 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={async () => {
+                const n = highLane.length;
+                for (const item of highLane) {
+                  await api.submitDecision(item.id, { decision: "approved" });
+                }
+                setAnnouncement(`${n} high-confidence drafts approved.`);
+                setCursor(0);
+                await load();
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" /> Approve {highLane.length} high-confidence
+            </Button>
+          )}
           <span className="ml-auto text-xs text-muted-foreground">
             {HOTKEYS.map((h) => `${h.keys} ${h.action}`).join(" · ")}
           </span>

@@ -64,7 +64,12 @@ function DocumentRowItem({
         className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-secondary/50"
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{doc.filename}</p>
+          <p className="truncate text-sm font-medium">
+            <span className="mr-2 rounded bg-muted px-1.5 py-0.5 align-middle font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {formatLabel(doc.mimeType)}
+            </span>
+            {doc.filename}
+          </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {doc.title ? `${doc.title} · ` : ""}
             {formatBytes(doc.sizeBytes)} · sha256 {doc.checksumSha256.slice(0, 10)}…
@@ -206,4 +211,11 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatLabel(mimeType: string): string {
+  if (mimeType === "application/epub+zip") return "EPUB";
+  if (mimeType === "application/pdf") return "PDF";
+  if (mimeType.includes("wordprocessingml")) return "DOCX";
+  return mimeType.split("/").pop()?.slice(0, 5).toUpperCase() ?? "FILE";
 }

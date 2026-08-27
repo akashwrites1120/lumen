@@ -9,6 +9,7 @@ import {
   FileJson,
   Lock,
   Loader2,
+  ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,14 @@ const STATUS_VARIANT: Record<
   failed: "danger",
   validation_failed: "danger",
 };
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function ExportPanel({ projectId }: { projectId: string }) {
   const [formats, setFormats] = React.useState<string[]>(["epub"]);
@@ -78,11 +87,12 @@ export function ExportPanel({ projectId }: { projectId: string }) {
 
   const download = async (exp: ExportRow, format: string) => {
     const { url, filename } = await api.downloadArtifactBlobUrl(exp.id, format);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(url, filename);
+  };
+
+  const downloadReport = async (exportId: string) => {
+    const { url, filename } = await api.downloadReportBlobUrl(exportId);
+    triggerDownload(url, filename);
   };
 
   return (
@@ -164,6 +174,15 @@ export function ExportPanel({ projectId }: { projectId: string }) {
                         <Download className="h-3.5 w-3.5" /> {f}
                       </Button>
                     ))}
+                  {(exp.status === "completed" || exp.status === "validation_failed") && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void downloadReport(exp.id)}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" /> Report
+                    </Button>
+                  )}
                 </div>
               </motion.li>
             ))}
