@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { assets, documents, exports as exportsTable, projects, validations } from "@lumen/db";
+import { assets, auditEvents, documents, exports as exportsTable, projects, reviews, suggestions, validations } from "@lumen/db";
 import { CreateExportInput } from "@lumen/schemas";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../types.js";
@@ -137,5 +137,80 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
         `attachment; filename="${exp.projectId.slice(0, 8)}-${exportId.slice(0, 8)}.${format}"`
       )
       .send(body);
+  });
+
+  app.get("/v1/exports/:exportId/report", async (req, reply) => {
+    const user = await requireUser(req);
+    const { exportId } = req.params as { exportId: string };
+
+    const rows = await db
+      .select({ exp: exportsTable, project: projects })
+      .from(exportsTable)
+      .innerJoin(projects, eq(projects.id, exportsTable.projectId))
+      .where(and(eq(exportsTable.id, exportId), eq(projects.organizationId, user.organizationId)))
+      .limit(1);
+    const found = rows[0];
+    if (!found) return reply.code(404).send({ error: "not_found" });
+    const { exp, project } = found;
+
+    const validationRows = await db
+      .select()
+      .from(validations)
+      .where(eq(validations.exportId, exportId));
+
+    const docIds = (
+      await db.select({ id: documents.id }).from(documents).where(eq(documents.projectId, project.id))
+    ).map((d) => d.id);
+
+    const decisionRows = docIds.length
+      ? await db
+          .select({ decision: reviews.decision })
+          .from(reviews)
+          .innerJoin(suggestions, eq(suggestions.id, reviews.suggestionId))
+          .innerJoin(assets, eq(assets.id, suggestions.assetId))
+          .where(inArray(assets.documentId, docIds))
+      : [];
+
+    const byType: Record<string, number> = {};
+    for (const r of decisionRows) byType[r.decision] = (byType[r.decision] ?? 0) + 1;
+
+    const report = {
+      generator: "lumen",
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      project: { id: project.id, name: project.name },
+      export: {
+        id: exp.id,
+        formats: exp.formats,
+        status: exp.status,
+        createdAt: exp.createdAt,
+      },
+      reviewSummary: { totalDecisions: decisionRows.length, byType },
+      validators: validationRows.map((v) => ({
+        validator: v.validator,
+        format: v.format,
+        passed: v.passed,
+        output: v.output,
+        at: v.createdAt,
+      })),
+      standards: ["WCAG 2.1 AA", "EPUB Accessibility 1.1", "PDF/UA (pending Phase 3)"],
+    };
+
+    await db.insert(auditEvents).values({
+      organizationId: user.organizationId,
+      actorUserId: user.id,
+      action: "export.report_downloaded",
+      subjectType: "export",
+      subjectId: exportId,
+      detail: null,
+    });
+
+    return reply
+      .header("content-type", "application/json")
+      .header(
+        "content-disposition",
+        `attachment; filename="compliance-report-${exportId.slice(0, 8)}.json"`
+      )
+      .send(report);
   });
 }
