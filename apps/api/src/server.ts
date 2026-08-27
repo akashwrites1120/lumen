@@ -13,8 +13,10 @@ import { registerEventRoutes } from "./routes/events.js";
 import { registerReviewRoutes } from "./routes/review.js";
 import { registerExportRoutes } from "./routes/exports.js";
 import { registerMetricsRoutes } from "./routes/metrics.js";
-import { createIngestQueue, createDraftQueue, createExportQueue, INGEST_QUEUE } from "./queue.js";
+import { registerWebhookRoutes } from "./routes/webhooks.js";
+import { createIngestQueue, createDraftQueue, createExportQueue, createWebhookQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
+import { S3Storage, s3ClientFromEnv } from "./storage/s3.js";
 import type { SessionUser } from "./auth/session.js";
 import type { AppContext } from "./types.js";
 
@@ -50,12 +52,18 @@ export async function buildApp(): Promise<FastifyInstance> {
   const ingestQueue = createIngestQueue(redisUrl);
   const draftQueue = createDraftQueue(redisUrl);
   const exportQueue = createExportQueue(redisUrl);
+  const webhookQueue = createWebhookQueue(redisUrl);
 
-  const storage = new LocalDiskStorage(
-    process.env.STORAGE_LOCAL_ROOT ?? ".data/storage"
+  const storage =
+    process.env.STORAGE_DRIVER === "s3" && process.env.S3_BUCKET
+      ? new S3Storage(process.env.S3_BUCKET, s3ClientFromEnv())
+      : new LocalDiskStorage(process.env.STORAGE_LOCAL_ROOT ?? ".data/storage");
+  app.log.info(
+    { driver: storage instanceof S3Storage ? "s3" : "local-disk" },
+    "storage driver selected"
   );
 
-  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue, exportQueue };
+  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue, exportQueue, webhookQueue };
   app.decorate("ctx", ctx);
   app.decorate("requireUser", (req: FastifyRequest) => requireSessionUser(app, ctx, req));
 
@@ -66,6 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerReviewRoutes(app, ctx);
   registerExportRoutes(app, ctx);
   registerMetricsRoutes(app, ctx);
+  registerWebhookRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
     const [ingest, draft] = await Promise.all([
@@ -76,7 +85,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   app.addHook("onClose", async () => {
-    await Promise.allSettled([ingestQueue.close(), draftQueue.close(), exportQueue.close()]);
+    await Promise.allSettled([
+      ingestQueue.close(),
+      draftQueue.close(),
+      exportQueue.close(),
+      webhookQueue.close(),
+    ]);
     redis.disconnect();
     await pgClient.end();
   });
