@@ -29,6 +29,21 @@ services:
       timeout: 3s
       retries: 12
 
+  # EPUB validator sidecar — enable with:
+  #   docker compose --profile validators up -d --build
+  # then point workers at it via EPUBCHECK_URL=http://localhost:4010
+  validator-epubcheck:
+    build:
+      context: ./docker/validator-epubcheck
+      args:
+        EPUBCHECK_VERSION: "5.1.0"
+    image: lumen/validator-epubcheck
+    container_name: lumen-validator-epubcheck
+    profiles: ["validators"]
+    ports:
+      - "4010:4010"
+    mem_limit: 512m
+
 volumes:
   lumen-pgdata:
   lumen-redisdata:
