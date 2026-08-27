@@ -94,3 +94,15 @@ export interface ExportRow {
   createdAt: string;
   validations?: ValidationRow[];
 }
+
+export interface ProjectMetrics {
+  totalDecisions: number;
+  byType: Record<string, number>;
+  aiAcceptanceRatePct: number | null;
+  editedDecisions: number;
+  avgEditDistanceChars: number | null;
+  reviewThroughputSec: number | null;
+  throughputP50Sec: number | null;
+  throughputP95Sec: number | null;
+  avgSuggestionConfidence: number | null;
+}

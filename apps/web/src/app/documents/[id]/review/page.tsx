@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import {
   ArrowLeft,
   Check,
@@ -38,6 +38,7 @@ export default function ReviewWorkbenchPage() {
   const [cursor, setCursor] = React.useState(0);
   const [editValue, setEditValue] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [announcement, setAnnouncement] = React.useState("");
   const shownAtRef = React.useRef<number>(Date.now());
   const editRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -87,6 +88,9 @@ export default function ReviewWorkbenchPage() {
           durationMs: Date.now() - shownAtRef.current,
         });
         setEditValue(null);
+        setAnnouncement(
+          `${decision}. ${Math.max(0, pending.length - 1)} image(s) remaining.`
+        );
         await load();
         setCursor((c) => Math.max(0, Math.min(c, pending.length - 2)));
         if (decision === "rejected") return;
@@ -100,6 +104,7 @@ export default function ReviewWorkbenchPage() {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!current) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement;
@@ -155,10 +160,21 @@ export default function ReviewWorkbenchPage() {
   }
 
   return (
-    <div className="min-h-screen">
-      <AppHeader />
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <div className="flex flex-wrap items-center gap-3">
+    <MotionConfig reducedMotion="user">
+      <div className="min-h-screen">
+        <a
+          href="#workbench-main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:text-primary-foreground"
+        >
+          Skip to review area
+        </a>
+        <AppHeader />
+        <main id="workbench-main" className="mx-auto max-w-6xl px-6 py-8">
+          <h1 className="sr-only">Review workbench</h1>
+          <div aria-live="polite" role="status" className="sr-only">
+            {announcement}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => router.back()}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -330,8 +346,9 @@ export default function ReviewWorkbenchPage() {
             </aside>
           </div>
         )}
-      </main>
-    </div>
+        </main>
+      </div>
+    </MotionConfig>
   );
 }
 

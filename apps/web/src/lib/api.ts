@@ -7,6 +7,7 @@ import type {
   DocumentRow,
   ExportRow,
   ProjectDetail,
+  ProjectMetrics,
   ProjectSummary,
   ReviewFeed,
 } from "./types";
@@ -161,6 +162,9 @@ export const api = {
       summary: Record<string, number>;
       stage: string | null;
     }>(`/v1/projects/${projectId}/review-summary`),
+
+  metrics: (projectId: string) =>
+    request<{ metrics: ProjectMetrics }>(`/v1/projects/${projectId}/metrics`),
 
   downloadArtifactBlobUrl: async (
     exportId: string,
