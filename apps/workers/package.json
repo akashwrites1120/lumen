@@ -8,7 +8,7 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"(worker unit tests in phase 1)\" && exit 0",
+    "test": "echo \"(golden-corpus harness deferred)\" && exit 0",
     "lint": "echo \"(lint via shared eslint in phase 1)\" && exit 0"
   },
   "dependencies": {
