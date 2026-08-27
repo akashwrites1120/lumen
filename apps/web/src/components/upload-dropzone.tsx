@@ -21,8 +21,11 @@ export function UploadDropzone({
   async function handleFiles(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".epub")) {
-      toast.error("Phase 0 accepts EPUB files only");
+    const ok = [".epub", ".docx", ".pdf"].some((ext) =>
+      file.name.toLowerCase().endsWith(ext)
+    );
+    if (!ok) {
+      toast.error("Accepted formats: EPUB, DOCX, PDF");
       return;
     }
     setProgress(0);
@@ -34,7 +37,7 @@ export function UploadDropzone({
       const msg =
         err instanceof ApiError
           ? err.status === 415
-            ? "Only EPUB is supported in Phase 0"
+            ? "Only EPUB, DOCX and PDF are supported"
             : err.message
           : "Upload failed";
       toast.error(msg);
@@ -47,7 +50,7 @@ export function UploadDropzone({
     <div
       role="button"
       tabIndex={0}
-      aria-label="Upload EPUB file"
+      aria-label="Upload document"
       onClick={() => inputRef.current?.click()}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
@@ -71,7 +74,7 @@ export function UploadDropzone({
       <input
         ref={inputRef}
         type="file"
-        accept=".epub,application/epub+zip"
+        accept=".epub,.docx,.pdf,application/epub+zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         hidden
         onChange={(e) => void handleFiles(e.target.files)}
       />
@@ -92,7 +95,7 @@ export function UploadDropzone({
             >
               <CloudUpload className="h-7 w-7" />
             </motion.span>
-            <p className="font-medium">Drop your EPUB here</p>
+            <p className="font-medium">Drop your book here</p>
           </motion.div>
         ) : progress !== null ? (
           <motion.div
@@ -125,7 +128,7 @@ export function UploadDropzone({
             <span className="grid h-14 w-14 place-items-center rounded-2xl bg-secondary text-secondary-foreground">
               <CloudUpload className="h-7 w-7" />
             </span>
-            <p className="font-medium">Drag an EPUB here, or click to browse</p>
+            <p className="font-medium">Drag a book here, or click to browse</p>
             <p className="text-sm text-muted-foreground">
               Up to 100 MB · PDF & DOCX support arrives in Phase 1
             </p>

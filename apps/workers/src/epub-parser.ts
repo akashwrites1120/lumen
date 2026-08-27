@@ -29,6 +29,9 @@ export interface ParsedEpub {
   readBinary: (zipPath: string) => Promise<Buffer | null>;
 }
 
+/** Structural shape shared by every source-format parser (epub/docx/pdf). */
+export type ParsedDocument = ParsedEpub;
+
 const XHTML_MEDIA = ["application/xhtml+xml", "text/html"];
 
 export async function parseEpub(buffer: Buffer): Promise<ParsedEpub> {
@@ -119,7 +122,7 @@ function parseSpine(opfXml: string): string[] {
   return ids;
 }
 
-function extractSection(html: string, sectionZipPath: string, index: number): ParsedSection {
+export function extractSection(html: string, sectionZipPath: string, index: number): ParsedSection {
   const root = parse(html);
   const title =
     root.querySelector("h1")?.textContent.trim() ??

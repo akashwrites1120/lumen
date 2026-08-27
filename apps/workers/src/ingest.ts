@@ -9,7 +9,9 @@ import {
   type CanonicalIR,
   type IngestStage,
 } from "@lumen/schemas";
-import { parseEpub, type ParsedSection, type SectionBlock } from "./epub-parser.js";
+import { parseEpub, type ParsedDocument, type ParsedSection, type SectionBlock } from "./epub-parser.js";
+import { parseDocx } from "./docx-parser.js";
+import { parsePdf } from "./pdf-parser.js";
 import type { AssetStore } from "./storage.js";
 
 export interface IngestJobData {
@@ -68,20 +70,28 @@ export async function processIngest(
     await setDocState(db, documentId, "parsing");
     emit("received", `Starting ingest of ${doc.filename}`);
 
-    emit("parsing", "Reading EPUB structure");
+    emit("parsing", "Reading source document");
     const source = await store.read(doc.storageKey);
-    const epub = await parseEpub(source);
+    const parsed: ParsedDocument = await (doc.mimeType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ? parseDocx(source)
+      : doc.mimeType === "application/pdf"
+        ? parsePdf(source)
+        : parseEpub(source));
+    const format = doc.mimeType === "application/epub+zip" ? "epub" as const
+      : doc.mimeType === "application/pdf" ? "pdf" as const
+      : "docx" as const;
 
-    if (epub.title) {
-      await db.update(documents).set({ title: epub.title }).where(eq(documents.id, documentId));
+    if (parsed.title) {
+      await db.update(documents).set({ title: parsed.title }).where(eq(documents.id, documentId));
     }
 
-    emit("extracting_images", `${epub.images.size} image(s) in manifest`);
+    emit("extracting_images", `${parsed.images.size} image(s) in manifest`);
     const hrefToAssetId = new Map<string, string>();
     const checksumToAssetId = new Map<string, string>();
 
-    for (const [href, ref] of epub.images) {
-      const buffer = await epub.readBinary(href);
+    for (const [href, ref] of parsed.images) {
+      const buffer = await parsed.readBinary(href);
       if (!buffer || buffer.byteLength === 0) {
         job.log(`skipping unreadable image: ${href}`);
         continue;
@@ -103,7 +113,7 @@ export async function processIngest(
             byteSize: stored.byteSize,
             checksumSha256: stored.checksumSha256,
             sourceHref: href,
-            spineIndex: spineIndexFor(epub.sections, href),
+            spineIndex: spineIndexFor(parsed.sections, href),
             widthPx: dims?.width ?? null,
             heightPx: dims?.height ?? null,
             state: "extracted",
@@ -134,14 +144,14 @@ export async function processIngest(
     }
 
     emit("building_ir", "Building canonical IR");
-    const ir = buildIR(documentId, "epub", epub.title, epub.language, epub.sections, hrefToAssetId);
+    const ir = buildIR(documentId, format, parsed.title, parsed.language, parsed.sections, hrefToAssetId);
     figuresFound = countIRFigures(ir);
 
     await db
       .update(documents)
       .set({
         state: "ingested",
-        language: epub.language,
+        language: parsed.language,
         irSnapshot: { sections: ir.sections },
         updatedAt: new Date(),
       })
