@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"(golden-corpus harness deferred)\" && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "echo \"(lint via shared eslint in phase 1)\" && exit 0"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

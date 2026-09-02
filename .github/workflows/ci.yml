@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  # workers are read-only unit/integration tests here; no live DB needed
+  AI_PROVIDER_ORDER: mock
+  STORAGE_DRIVER: local
+  SESSION_TTL_DAYS: 30
+  EPUBCHECK_URL: http://localhost:4010
+
+jobs:
+  build-test:
+    name: build / typecheck / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+  validators:
+    name: validators (epubcheck sidecar)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build epubcheck sidecar
+        run: docker compose --profile validators build validator-epubcheck
+
+      - name: Boot sidecar
+        run: |
+          docker compose --profile validators up -d validator-epubcheck
+          # wait for the sidecar to be ready
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4010/ || echo 000)
+            if [ "$code" != "000" ]; then break; fi
+            sleep 2
+          done
+          curl -sS http://localhost:4010/
+
+      - name: Generate fixture EPUB
+        run: pnpm fixture:epub .data/fixture/ci-book.epub
+
+      - name: Validate fixture against epubcheck sidecar
+        run: |
+          node -e "
+            const fs = require('fs');
+            const buf = fs.readFileSync('.data/fixture/ci-book.epub');
+            fetch(process.env.EPUBCHECK_URL + '/validate', { method: 'POST', body: buf })
+              .then(async r => {
+                const j = await r.json();
+                console.log(JSON.stringify(j));
+                if (!j.ok) process.exit(1);
+              });
+          "
+
+      - name: Teardown
+        if: always()
+        run: docker compose --profile validators down || true

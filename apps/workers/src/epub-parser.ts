@@ -74,8 +74,8 @@ export async function parseEpub(buffer: Buffer): Promise<ParsedEpub> {
     sections.push(extractSection(html, zipPath, index));
   }
 
-  async function readBinary(href: string): Promise<Buffer | null> {
-    const entry = zip.file(resolveZipPath(opfDir, href));
+  async function readBinary(zipPath: string): Promise<Buffer | null> {
+    const entry = zip.file(zipPath);
     if (!entry) return null;
     return entry.async("nodebuffer");
   }
