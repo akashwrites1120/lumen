@@ -78,7 +78,7 @@ export const ReviewDecisionInput = z
   );
 export type ReviewDecisionInput = z.infer<typeof ReviewDecisionInput>;
 
-export const ExportFormat = z.enum(["json", "epub", "xlsx", "html", "azw3"]);
+export const ExportFormat = z.enum(["json", "epub", "xlsx", "html", "azw3", "pdf"]);
 export type ExportFormat = z.infer<typeof ExportFormat>;
 
 /** Alt-text output languages supported at launch (PRD Phase 3). */

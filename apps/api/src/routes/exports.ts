@@ -24,6 +24,7 @@ const ARTIFACT_MIME: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   html: "text/html; charset=utf-8",
   azw3: "application/x-mobipocket-ebook",
+  pdf: "application/pdf",
 };
 
 /**

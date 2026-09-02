@@ -16,6 +16,7 @@ import type { CanonicalIR } from "@lumen/schemas";
 import { AssetStore } from "../storage.js";
 import { dispatchWebhookEvent } from "../webhook.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
+import { buildPdfArtifact } from "./pdf.js";
 import { buildXlsxArtifact } from "./xlsx.js";
 import { buildHtmlArtifact } from "./html.js";
 import { recordUsage } from "../usage.js";
@@ -303,6 +304,9 @@ export async function processExport(
           artifacts.azw3 = conversion.bytes;
           artifactKeys.azw3 = `${scope}/artifact.azw3`;
         }
+      } else if (format === "pdf") {
+        artifacts.pdf = await buildPdfArtifact(input, (key) => store.read(key));
+        artifactKeys.pdf = `${scope}/artifact.pdf`;
       }
     }
 
