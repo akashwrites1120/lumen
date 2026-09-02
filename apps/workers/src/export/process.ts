@@ -17,6 +17,7 @@ import { AssetStore } from "../storage.js";
 import { dispatchWebhookEvent } from "../webhook.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
 import { buildXlsxArtifact } from "./xlsx.js";
+import { buildHtmlArtifact } from "./html.js";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 
 export interface ExportJobData {
@@ -139,6 +140,14 @@ async function runValidationGate(
       const ok = isZip && hasWorkbookXml;
       passed = ok ? "passed" : "failed";
       output = { check: "xlsx_structure", isZip, hasWorkbookXml };
+    } else if (format === "html" && buffer) {
+      const text = buffer.toString("utf8");
+      const hasDoctype = text.startsWith("<!doctype html>");
+      const hasLang = /<html\s[^>]*lang="/i.test(text);
+      const hasBody = /<body>/i.test(text);
+      const ok = hasDoctype && hasLang && hasBody;
+      passed = ok ? "passed" : "failed";
+      output = { check: "html_structure", hasDoctype, hasLang, hasBody };
     }
 
     if (passed === "failed") allPassed = false;
@@ -222,6 +231,9 @@ export async function processExport(
       } else if (format === "xlsx") {
         artifacts.xlsx = await buildXlsxArtifact(input);
         artifactKeys.xlsx = `${scope}/artifact.xlsx`;
+      } else if (format === "html") {
+        artifacts.html = await buildHtmlArtifact(input, (key) => store.read(key));
+        artifactKeys.html = `${scope}/artifact.html`;
       }
     }
 
