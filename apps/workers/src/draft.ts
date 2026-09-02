@@ -14,11 +14,13 @@ import { DraftEvent, type Block, type DraftStage } from "@lumen/schemas";
 import {
   describeWithFailover,
   resolveVisionProviders,
+  type AltTextDraft,
   type DescribeRequest,
   type VisionProvider,
 } from "@lumen/providers";
 import type { AssetStore } from "./storage.js";
 import { recordUsage } from "./usage.js";
+import { readVisionCache, visionCacheKey, visionCacheTtlFromEnv, writeVisionCache } from "./vision-cache.js";
 
 export interface DraftJobData {
   assetId: string;
@@ -30,6 +32,8 @@ export interface DraftDeps {
   store: AssetStore;
   providers?: VisionProvider[];
   maxAltChars?: number;
+  /** Vision result cache TTL in seconds; 0 disables. Defaults from env. */
+  cacheTtlSec?: number;
 }
 
 export interface DraftResult {
@@ -108,18 +112,53 @@ export async function processDraft(
     };
 
     emit("describing", `Asking ${providers.filter((p) => p.isConfigured()).map((p) => p.name).join(" → ")}`);
-    const { result } = await describeWithFailover(providers, request);
+
+    // Cost control: identical image (checksum) + identical context reuses
+    // the previous draft instead of paying for another vision call.
+    const cacheTtl = deps.cacheTtlSec ?? visionCacheTtlFromEnv();
+    const cacheKey = visionCacheKey({
+      checksumSha256: asset.checksumSha256,
+      mimeType: asset.mimeType,
+      context: request.context,
+      styleGuide: request.styleGuide,
+    });
+
+    let result: AltTextDraft;
+    let fromCache = false;
+    const cached = cacheTtl > 0 ? await readVisionCache(redis, cacheKey) : null;
+    if (cached) {
+      result = cached.draft;
+      fromCache = true;
+      emit("describing", `Cache hit (${cached.provider}) — no vision call needed`);
+    } else {
+      const { result: fresh } = await describeWithFailover(providers, request);
+      result = fresh;
+      await writeVisionCache(redis, cacheKey, {
+        draft: result,
+        provider: result.provider,
+        model: result.model,
+        cachedAt: new Date().toISOString(),
+      }, cacheTtl);
+    }
     const lane = laneFor(result.confidence, result.imageClass);
 
     await recordUsage(db, {
       organizationId: orgId,
       kind: "vision_call",
+      // A cache hit is not a billable vision call — record zero units so
+      // the ledger keeps the event for visibility without charging it.
+      units: fromCache ? 0 : 1,
       subjectType: "asset",
       subjectId: asset.id,
-      detail: { provider: result.provider, model: result.model, confidence: result.confidence },
+      detail: {
+        provider: result.provider,
+        model: result.model,
+        confidence: result.confidence,
+        cached: fromCache,
+      },
     });
 
-    emit("drafted", `${result.provider} · ${result.confidence}% · ${lane} lane`);
+    emit("drafted", `${result.provider}${fromCache ? " (cache)" : ""} · ${result.confidence}% · ${lane} lane`);
 
     const prior = await db
       .select({ revision: suggestions.revision })
@@ -150,10 +189,10 @@ export async function processDraft(
       action: "suggestion.drafted",
       subjectType: "asset",
       subjectId: asset.id,
-      detail: { provider: result.provider, model: result.model, confidence: result.confidence, lane },
+      detail: { provider: result.provider, model: result.model, confidence: result.confidence, lane, cached: fromCache },
     });
 
-    job.log(`drafted via ${result.provider}/${result.model}, lane=${lane}`);
+    job.log(`drafted via ${result.provider}/${result.model}${fromCache ? " (cache)" : ""}, lane=${lane}`);
     return {
       altText: result.altText,
       confidence: result.confidence,

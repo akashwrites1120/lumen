@@ -9,6 +9,7 @@ import { processDraft, type DraftJobData } from "./draft.js";
 import { processExport, type ExportJobData } from "./export/process.js";
 import { processWebhookDelivery, type WebhookJobData } from "./webhook.js";
 import { resolveVisionProviders } from "@lumen/providers";
+import { visionCacheTtlFromEnv } from "./vision-cache.js";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
 
@@ -44,6 +45,7 @@ const draftWorker = new Worker<DraftJobData>(
       store,
       providers,
       maxAltChars: Number(process.env.VISION_MAX_ALT_CHARS ?? 125),
+      cacheTtlSec: visionCacheTtlFromEnv(),
     });
   },
   { connection, concurrency: Number(process.env.DRAFT_CONCURRENCY ?? 4) }
