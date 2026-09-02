@@ -18,7 +18,8 @@ export const API_BASE =
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    public detail?: string
   ) {
     super(message);
   }
@@ -43,7 +44,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(res.status, body.error ?? `request_failed_${res.status}`);
+    throw new ApiError(
+      res.status,
+      body.error ?? `request_failed_${res.status}`,
+      typeof body.detail === "string" ? body.detail : undefined
+    );
   }
   return body as T;
 }

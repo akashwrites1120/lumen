@@ -13,6 +13,14 @@ async function ownedProject(ctx: AppContext, id: string, organizationId: string)
   return rows[0] ?? null;
 }
 
+const ARTIFACT_MIME: Record<string, string> = {
+  json: "application/json",
+  epub: "application/epub+zip",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  html: "text/html; charset=utf-8",
+  azw3: "application/x-mobipocket-ebook",
+};
+
 export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db } = ctx;
   const requireUser = app.requireUser;
@@ -26,6 +34,16 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!project) return reply.code(404).send({ error: "not_found" });
 
     const input = CreateExportInput.parse(req.body);
+
+    // D-1: Kindle output ships as AZW3, labelled "Kindle-ready", behind the
+    // AZW3_ENABLED feature flag until Kindle validation matures.
+    if (input.formats.includes("azw3") && process.env.AZW3_ENABLED !== "true") {
+      return reply.code(409).send({
+        error: "azw3_disabled",
+        detail:
+          "Kindle export is behind a feature flag. Set AZW3_ENABLED=true and configure AZW3_CONVERT_URL (sidecar) or CALIBRE_CMD to enable it.",
+      });
+    }
 
     const docIds = (
       await db.select({ id: documents.id }).from(documents).where(eq(documents.projectId, id))
@@ -123,12 +141,7 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!key) return reply.code(404).send({ error: "artifact_not_found" });
 
     const body = await ctx.storage.get(key);
-    const mime =
-      format === "epub"
-        ? "application/epub+zip"
-        : format === "json"
-          ? "application/json"
-          : "application/octet-stream";
+    const mime = ARTIFACT_MIME[format] ?? "application/octet-stream";
 
     return reply
       .header("content-type", mime)

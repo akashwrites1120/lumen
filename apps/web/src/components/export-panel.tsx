@@ -6,7 +6,10 @@ import {
   CheckCircle2,
   Download,
   FileArchive,
+  FileCode,
   FileJson,
+  FileSpreadsheet,
+  BookOpen,
   Lock,
   Loader2,
   ShieldCheck,
@@ -77,7 +80,9 @@ export function ExportPanel({ projectId }: { projectId: string }) {
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 409
-          ? "Review gate: approve every image first."
+          ? err.message === "azw3_disabled"
+            ? err.detail ?? "Kindle export is behind a feature flag."
+            : "Review gate: approve every image first."
           : "Could not start export."
       );
     } finally {
@@ -113,10 +118,13 @@ export function ExportPanel({ projectId }: { projectId: string }) {
       </div>
 
       <div className="space-y-3 px-5 py-4">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {[
             { id: "json", label: "JSON", Icon: FileJson },
             { id: "epub", label: "EPUB 3", Icon: FileArchive },
+            { id: "xlsx", label: "XLSX", Icon: FileSpreadsheet },
+            { id: "html", label: "HTML", Icon: FileCode },
+            { id: "azw3", label: "Kindle (AZW3)", Icon: BookOpen },
           ].map(({ id, label, Icon }) => (
             <button
               key={id}
