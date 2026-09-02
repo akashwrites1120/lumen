@@ -18,6 +18,7 @@ import { dispatchWebhookEvent } from "../webhook.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
 import { buildXlsxArtifact } from "./xlsx.js";
 import { buildHtmlArtifact } from "./html.js";
+import { recordUsage } from "../usage.js";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 
 export interface ExportJobData {
@@ -241,6 +242,13 @@ export async function processExport(
 
     for (const [format, key] of Object.entries(artifactKeys)) {
       await store.writeRaw(key, artifacts[format]!);
+      await recordUsage(db, {
+        organizationId,
+        kind: "export_artifact",
+        subjectType: "export",
+        subjectId: exportId,
+        detail: { format, storageKey: key, bytes: artifacts[format]!.byteLength },
+      });
     }
 
     await db

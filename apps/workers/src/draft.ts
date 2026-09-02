@@ -18,6 +18,7 @@ import {
   type VisionProvider,
 } from "@lumen/providers";
 import type { AssetStore } from "./storage.js";
+import { recordUsage } from "./usage.js";
 
 export interface DraftJobData {
   assetId: string;
@@ -109,6 +110,14 @@ export async function processDraft(
     emit("describing", `Asking ${providers.filter((p) => p.isConfigured()).map((p) => p.name).join(" → ")}`);
     const { result } = await describeWithFailover(providers, request);
     const lane = laneFor(result.confidence, result.imageClass);
+
+    await recordUsage(db, {
+      organizationId: orgId,
+      kind: "vision_call",
+      subjectType: "asset",
+      subjectId: asset.id,
+      detail: { provider: result.provider, model: result.model, confidence: result.confidence },
+    });
 
     emit("drafted", `${result.provider} · ${result.confidence}% · ${lane} lane`);
 

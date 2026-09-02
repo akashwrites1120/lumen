@@ -240,6 +240,112 @@ export const webhookEndpoints = pgTable(
   (t) => [index("webhook_endpoints_org_idx").on(t.organizationId)]
 );
 
+export const usageKind = pgEnum("usage_kind", [
+  "vision_call",
+  "export_artifact",
+  "webhook_delivery",
+]);
+
+/**
+ * Append-only usage ledger. One row per billable event (one per vision call,
+ * one per export artifact, one per webhook delivery attempt). Aggregations
+ * are computed on read in the API; this table is intentionally narrow so
+ * writes are cheap and so we can add cost columns later without backfill.
+ */
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: usageKind("kind").notNull(),
+    units: integer("units").notNull().default(1),
+    subjectType: text("subject_type"),
+    subjectId: text("subject_id"),
+    detail: jsonb("detail"),
+    at: timestamp("at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    index("usage_events_org_at_idx").on(t.organizationId, t.at),
+    index("usage_events_kind_idx").on(t.kind),
+  ]
+);
+
+/**
+ * Per-asset reviewer assignment. An asset may have at most one active
+ * assignment; the unique index enforces it. Reviewers can self-claim by
+ * inserting a row for themselves; admins can assign directly.
+ */
+export const reviewAssignments = pgTable(
+  "review_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    assignedBy: uuid("assigned_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("assigned"),
+    assignedAt: timestamp("assigned_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("review_assignments_asset_idx").on(t.assetId),
+    index("review_assignments_reviewer_idx").on(t.reviewerId),
+    uniqueIndex("review_assignments_asset_active_unique")
+      .on(t.assetId)
+      .where(sql`status = 'assigned'`),
+  ]
+);
+
+export const notificationKind = pgEnum("notification_kind", [
+  "export.completed",
+  "export.failed",
+  "review.assigned",
+  "draft.failed",
+  "validator.failed",
+]);
+
+/**
+ * In-app notification log. Email delivery is layered on top: the
+ * dispatcher reads from this table and (when configured) hands each
+ * row to a transport. Keeping the source of truth in the DB makes
+ * "show me my notifications" trivial and survives worker restarts.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    kind: notificationKind("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    subjectType: text("subject_type"),
+    subjectId: text("subject_id"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("notifications_user_idx").on(t.userId, t.createdAt),
+    index("notifications_org_idx").on(t.organizationId, t.createdAt),
+  ]
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   users: many(users),
   projects: many(projects),
