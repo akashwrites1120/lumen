@@ -21,8 +21,11 @@ import { buildHtmlArtifact } from "./html.js";
 import { recordUsage } from "../usage.js";
 import { notify } from "@lumen/notify";
 import type { EmailTransport } from "@lumen/notify";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 import { isPlausibleAzw3, runAzw3Conversion, type Azw3ConversionResult } from "./azw3.js";
+
+const tracer = trace.getTracer("lumen-export");
 
 export interface ExportJobData {
   exportId: string;
@@ -257,6 +260,9 @@ export async function processExport(
   if (!exp) throw new Error(`export not found: ${exportId}`);
   const { webhookQueue } = deps;
   let orgIdForNotify: string | null = null;
+  const span = tracer.startSpan("export.process", {
+    attributes: { "lumen.export_id": exportId, "lumen.formats": exp.formats.join(",") },
+  });
 
   await db.update(exportsTable).set({ status: "running" }).where(eq(exportsTable.id, exportId));
 
@@ -354,6 +360,8 @@ export async function processExport(
 
     return { status: passed ? "completed" : "validation_failed", formats: exp.formats };
   } catch (err) {
+    span.recordException(err as Error);
+    span.setStatus({ code: SpanStatusCode.ERROR });
     await db.update(exportsTable).set({ status: "failed" }).where(eq(exportsTable.id, exportId));
     if (orgIdForNotify) {
       // The job itself failed (not a validator outcome) — still tell the org.
@@ -375,5 +383,7 @@ export async function processExport(
       }
     }
     throw err;
+  } finally {
+    span.end();
   }
 }

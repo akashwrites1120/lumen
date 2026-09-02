@@ -10,6 +10,7 @@ import sensible from "@fastify/sensible";
 import { Redis } from "ioredis";
 import { createDb } from "@lumen/db";
 import { createEmailTransportFromEnv } from "@lumen/notify";
+import { startTelemetry } from "@lumen/telemetry";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerDocumentRoutes, requireSessionUser } from "./routes/documents.js";
@@ -41,6 +42,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   const databaseUrl = process.env.DATABASE_URL ?? "";
   const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
 
+  const telemetry = await startTelemetry("lumen-api");
+
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? "info",
@@ -69,6 +72,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.log.info(
     { driver: storage instanceof S3Storage ? "s3" : "local-disk" },
     "storage driver selected"
+  );
+  app.log.info(
+    { telemetry: telemetry.enabled ? "otlp" : "off" },
+    "telemetry configured"
   );
 
   const emailTransport = createEmailTransportFromEnv();
@@ -146,6 +153,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       draftQueue.close(),
       exportQueue.close(),
       webhookQueue.close(),
+      telemetry.shutdown(),
     ]);
     redis.disconnect();
     await pgClient.end();

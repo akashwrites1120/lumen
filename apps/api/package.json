@@ -19,6 +19,7 @@
     "@lumen/db": "workspace:*",
     "@lumen/notify": "workspace:*",
     "@lumen/schemas": "workspace:*",
+    "@lumen/telemetry": "workspace:*",
     "bullmq": "^5.34.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",

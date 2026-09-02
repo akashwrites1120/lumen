@@ -22,8 +22,11 @@ import type { AssetStore } from "./storage.js";
 import { recordUsage } from "./usage.js";
 import { notify } from "@lumen/notify";
 import type { EmailTransport } from "@lumen/notify";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { readVisionCache, visionCacheKey, visionCacheTtlFromEnv, writeVisionCache } from "./vision-cache.js";
 import { maybeAlertMonthlySpend, spendAlertThresholdFromEnv } from "./spend-alert.js";
+
+const tracer = trace.getTracer("lumen-draft");
 
 export interface DraftJobData {
   assetId: string;
@@ -138,8 +141,22 @@ export async function processDraft(
       fromCache = true;
       emit("describing", `Cache hit (${cached.provider}) — no vision call needed`);
     } else {
-      const { result: fresh } = await describeWithFailover(providers, request);
-      result = fresh;
+      const span = tracer.startSpan("draft.describe", {
+        attributes: { "lumen.asset_id": assetId },
+      });
+      try {
+        const { result: fresh } = await describeWithFailover(providers, request);
+        result = fresh;
+        span.setAttribute("lumen.provider", result.provider);
+        span.setAttribute("lumen.confidence", result.confidence);
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        throw err;
+      } finally {
+        span.end();
+      }
       await writeVisionCache(redis, cacheKey, {
         draft: result,
         provider: result.provider,

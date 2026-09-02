@@ -10,6 +10,7 @@ import { processExport, type ExportJobData } from "./export/process.js";
 import { processWebhookDelivery, type WebhookJobData } from "./webhook.js";
 import { resolveVisionProviders } from "@lumen/providers";
 import { createEmailTransportFromEnv } from "@lumen/notify";
+import { startTelemetry } from "@lumen/telemetry";
 import { visionCacheTtlFromEnv } from "./vision-cache.js";
 import { spendAlertThresholdFromEnv } from "./spend-alert.js";
 
@@ -19,6 +20,8 @@ const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const { db, client: pgClient } = createDb(
   process.env.DATABASE_URL ?? "postgres://lumen:lumen@localhost:5432/lumen"
 );
+const telemetry = await startTelemetry("lumen-workers");
+console.log(`[workers] telemetry: ${telemetry.enabled ? "otlp" : "off"}`);
 
 const store = createAssetStoreFromEnv();
 const providers = resolveVisionProviders(process.env);
@@ -99,6 +102,7 @@ async function shutdown(signal: string) {
     webhookWorker.close(),
     draftQueue.close(),
     webhookQueue.close(),
+    telemetry.shutdown(),
   ]);
   connection.disconnect();
   await pgClient.end();
