@@ -20,6 +20,7 @@
     "bullmq": "^5.34.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
+    "exceljs": "^4.4.0",
     "image-size": "^2.0.0",
     "ioredis": "^5.4.2",
     "jszip": "^3.10.1",

@@ -16,6 +16,7 @@ import type { CanonicalIR } from "@lumen/schemas";
 import { AssetStore } from "../storage.js";
 import { dispatchWebhookEvent } from "../webhook.js";
 import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInput } from "./builders.js";
+import { buildXlsxArtifact } from "./xlsx.js";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 
 export interface ExportJobData {
@@ -121,7 +122,7 @@ async function runValidationGate(
         buffer.includes(Buffer.from("application/epub+zip"));
       passed = ok ? "passed" : "failed";
       output = { check: "structure", mimetypeFirstEntry: true, containerPresent: ok };
-    } else if (format === "json" && buffer) {
+    } else     if (format === "json" && buffer) {
       try {
         JSON.parse(buffer.toString("utf8"));
         passed = "passed";
@@ -130,6 +131,14 @@ async function runValidationGate(
         passed = "failed";
         output = { error: String(err).slice(0, 300) };
       }
+    } else if (format === "xlsx" && buffer) {
+      // minimal structural check: every XLSX is a ZIP starting with PK
+      // and contains the workbook XML entry exceljs always writes.
+      const isZip = buffer.subarray(0, 4).toString("latin1") === "PK\u0003\u0004";
+      const hasWorkbookXml = buffer.includes(Buffer.from("xl/workbook.xml"));
+      const ok = isZip && hasWorkbookXml;
+      passed = ok ? "passed" : "failed";
+      output = { check: "xlsx_structure", isZip, hasWorkbookXml };
     }
 
     if (passed === "failed") allPassed = false;
@@ -210,6 +219,9 @@ export async function processExport(
       } else if (format === "epub") {
         artifacts.epub = await buildEpubArtifact(input, (key) => store.read(key));
         artifactKeys.epub = `${scope}/artifact.epub`;
+      } else if (format === "xlsx") {
+        artifacts.xlsx = await buildXlsxArtifact(input);
+        artifactKeys.xlsx = `${scope}/artifact.xlsx`;
       }
     }
 
