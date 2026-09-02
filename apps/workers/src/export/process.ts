@@ -20,6 +20,7 @@ import { buildXlsxArtifact } from "./xlsx.js";
 import { buildHtmlArtifact } from "./html.js";
 import { recordUsage } from "../usage.js";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
+import { isPlausibleAzw3, runAzw3Conversion, type Azw3ConversionResult } from "./azw3.js";
 
 export interface ExportJobData {
   exportId: string;
@@ -108,7 +109,8 @@ async function runValidationGate(
   db: LumenDb,
   exportId: string,
   formats: string[],
-  artifacts: Record<string, Buffer>
+  artifacts: Record<string, Buffer>,
+  azw3: Azw3ConversionResult | null
 ): Promise<boolean> {
   let allPassed = true;
 
@@ -149,6 +151,28 @@ async function runValidationGate(
       const ok = hasDoctype && hasLang && hasBody;
       passed = ok ? "passed" : "failed";
       output = { check: "html_structure", hasDoctype, hasLang, hasBody };
+    } else if (format === "azw3") {
+      // Kindle output: structural gate on the produced bytes plus a
+      // provenance row recording which tool produced them.
+      if (azw3?.ok && buffer && isPlausibleAzw3(buffer)) {
+        passed = "passed";
+        output = {
+          check: "azw3_structure",
+          bookmobiMagic: true,
+          tool: azw3.tool,
+          bytes: buffer.byteLength,
+        };
+      } else {
+        // A requested format that couldn't be produced is a hard gate
+        // failure — the export must not be marked completed.
+        passed = "failed";
+        output = {
+          reason:
+            azw3 && !azw3.ok
+              ? azw3.reason
+              : "produced bytes are not a valid AZW3 container",
+        };
+      }
     }
 
     if (passed === "failed") allPassed = false;
@@ -159,6 +183,24 @@ async function runValidationGate(
         target: [validations.exportId, validations.validator, validations.format],
         set: { passed, output },
       });
+
+    // Record which tool produced a converted artifact (provenance for the
+    // compliance report), kept separate from the structural gate row.
+    if (format === "azw3" && azw3?.ok) {
+      await db
+        .insert(validations)
+        .values({
+          exportId,
+          validator: "azw3-conversion",
+          format: "azw3",
+          passed: "passed",
+          output: { tool: azw3.tool, bytes: azw3.bytes.byteLength },
+        })
+        .onConflictDoUpdate({
+          target: [validations.exportId, validations.validator, validations.format],
+          set: { passed: "passed", output: { tool: azw3.tool, bytes: azw3.bytes.byteLength } },
+        });
+    }
 
     for (const outcome of await sidecarOutcomes(format, artifacts)) {
       if (outcome.passed === "failed") allPassed = false;
@@ -221,6 +263,7 @@ export async function processExport(
     const artifacts: Record<string, Buffer> = {};
     const artifactKeys: Record<string, string> = {};
     const scope = `${organizationId}/${exp.projectId}/exports/${exportId}`;
+    let azw3Result: Azw3ConversionResult | null = null;
 
     for (const format of exp.formats) {
       if (format === "json") {
@@ -235,10 +278,23 @@ export async function processExport(
       } else if (format === "html") {
         artifacts.html = await buildHtmlArtifact(input, (key) => store.read(key));
         artifactKeys.html = `${scope}/artifact.html`;
+      } else if (format === "azw3") {
+        // Kindle output converts from the EPUB; build it on the fly when
+        // the caller only asked for azw3 (it is not persisted unless the
+        // caller explicitly requested the epub format too).
+        if (!artifacts.epub) {
+          artifacts.epub = await buildEpubArtifact(input, (key) => store.read(key));
+        }
+        const conversion = await runAzw3Conversion(artifacts.epub);
+        azw3Result = conversion;
+        if (conversion.ok) {
+          artifacts.azw3 = conversion.bytes;
+          artifactKeys.azw3 = `${scope}/artifact.azw3`;
+        }
       }
     }
 
-    const passed = await runValidationGate(db, exportId, exp.formats, artifacts);
+    const passed = await runValidationGate(db, exportId, exp.formats, artifacts, azw3Result);
 
     for (const [format, key] of Object.entries(artifactKeys)) {
       await store.writeRaw(key, artifacts[format]!);

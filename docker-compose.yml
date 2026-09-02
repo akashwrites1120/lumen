@@ -58,6 +58,19 @@ services:
       - "4011:4011"
     mem_limit: 1g
 
+  # Kindle (AZW3) conversion sidecar (Calibre ebook-convert) — enable with:
+  #   docker compose --profile converters up -d --build
+  # then set AZW3_ENABLED=true and AZW3_CONVERT_URL=http://localhost:4012
+  export-azw3:
+    build:
+      context: ./docker/export-azw3
+    image: lumen/export-azw3
+    container_name: lumen-export-azw3
+    profiles: ["converters"]
+    ports:
+      - "4012:4012"
+    mem_limit: 1g
+
   # S3-compatible object storage for local dev (STORAGE_DRIVER=s3)
   minio:
     image: minio/minio:latest

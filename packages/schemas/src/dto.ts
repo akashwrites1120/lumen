@@ -78,10 +78,10 @@ export const ReviewDecisionInput = z
   );
 export type ReviewDecisionInput = z.infer<typeof ReviewDecisionInput>;
 
-export const ExportFormat = z.enum(["json", "epub"]);
+export const ExportFormat = z.enum(["json", "epub", "xlsx", "html", "azw3"]);
 export type ExportFormat = z.infer<typeof ExportFormat>;
 
 export const CreateExportInput = z.object({
-  formats: z.array(ExportFormat).min(1).max(2),
+  formats: z.array(ExportFormat).min(1).max(5),
 });
 export type CreateExportInput = z.infer<typeof CreateExportInput>;
