@@ -7,6 +7,7 @@ import type {
   VisionProvider,
 } from "./types.js";
 import { draftSchema } from "./openai.js";
+import { buildSystemPrompt, buildUserPrompt } from "./prompt.js";
 
 export interface AnthropicAdapterConfig {
   apiKey: string;
@@ -19,36 +20,6 @@ const DEFAULT_MODEL = "claude-3-5-sonnet-latest";
 const responseSchema = z.object({
   content: z.array(z.object({ type: z.string(), text: z.string().optional() })),
 });
-
-function systemPrompt(req: DescribeRequest): string {
-  const maxAlt = req.styleGuide?.maxAltChars ?? 125;
-  const lang = req.context?.language ?? "en";
-  return [
-    "You are an accessibility expert producing WCAG-compliant image descriptions.",
-    "Respond with STRICT JSON only, no markdown fences, matching:",
-    '{"image_class":"photograph|chart|diagram|table_scan|infographic|decorative|unknown",',
-    ' "alt_text":"...", "long_description":"..." | null, "confidence":0-100}',
-    `Rules: alt_text <= ${maxAlt} chars, no "image of" phrasing, written in ${lang}.`,
-    req.styleGuide?.includeLongDescription === false
-      ? "Set long_description to null."
-      : "Provide long_description (2-6 sentences) when the image is complex (chart/diagram/table/infographic), else null.",
-    'Use class "decorative" only for pure ornament; then set alt_text to the empty string.',
-  ].join("\n");
-}
-
-function userPrompt(req: DescribeRequest): string {
-  const ctx = req.context;
-  const lines: string[] = [];
-  if (ctx?.documentTitle) lines.push(`Document title: ${ctx.documentTitle}`);
-  if (ctx?.sectionTitle) lines.push(`Section heading: ${ctx.sectionTitle}`);
-  if (ctx?.surroundingText)
-    lines.push(`Surrounding text: ${ctx.surroundingText.slice(0, 600)}`);
-  return [
-    lines.length ? lines.join("\n") : "(no textual context available)",
-    "",
-    "Describe the attached image per the system rules.",
-  ].join("\n");
-}
 
 export class AnthropicVisionProvider implements VisionProvider {
   readonly name: string;
@@ -91,7 +62,7 @@ export class AnthropicVisionProvider implements VisionProvider {
         model: this.model,
         max_tokens: 1024,
         temperature: 0.2,
-        system: systemPrompt(req),
+        system: buildSystemPrompt(req),
         messages: [
           {
             role: "user",
@@ -104,7 +75,7 @@ export class AnthropicVisionProvider implements VisionProvider {
                   data: req.image.bytes.toString("base64"),
                 },
               },
-              { type: "text", text: userPrompt(req) },
+              { type: "text", text: buildUserPrompt(req) },
             ],
           },
         ],

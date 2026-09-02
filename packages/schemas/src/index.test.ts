@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Block, ProgressEvent, countFigures } from "./index.js";
+import { Block, ProgressEvent, countFigures, LanguageInput, SUPPORTED_LANGUAGES, languageName } from "./index.js";
 import type { CanonicalIR } from "./index.js";
 
 describe("Block", () => {
@@ -29,6 +29,23 @@ describe("ProgressEvent", () => {
       at: new Date().toISOString(),
     });
     expect(ev.figuresFound).toBe(0);
+  });
+});
+
+describe("languages", () => {
+  it("exposes the Phase 3 launch set (en/es/fr/de/hi)", () => {
+    expect(SUPPORTED_LANGUAGES).toEqual(["en", "es", "fr", "de", "hi"]);
+  });
+
+  it("LanguageInput accepts a supported code and rejects others", () => {
+    expect(LanguageInput.parse("de")).toBe("de");
+    expect(() => LanguageInput.parse("zh")).toThrow();
+    expect(() => LanguageInput.parse("EN")).toThrow();
+  });
+
+  it("languageName maps codes to friendly names and passes through unknowns", () => {
+    expect(languageName("fr")).toBe("French");
+    expect(languageName("xx-custom")).toBe("xx-custom");
   });
 });
 

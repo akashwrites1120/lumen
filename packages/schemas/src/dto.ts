@@ -81,6 +81,26 @@ export type ReviewDecisionInput = z.infer<typeof ReviewDecisionInput>;
 export const ExportFormat = z.enum(["json", "epub", "xlsx", "html", "azw3"]);
 export type ExportFormat = z.infer<typeof ExportFormat>;
 
+/** Alt-text output languages supported at launch (PRD Phase 3). */
+export const SUPPORTED_LANGUAGES = ["en", "es", "fr", "de", "hi"] as const;
+export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+
+export const LanguageInput = z.enum(SUPPORTED_LANGUAGES);
+export type LanguageInput = z.infer<typeof LanguageInput>;
+
+const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
+  en: "English",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  hi: "Hindi",
+};
+
+/** Human-readable name for a language code; unknown codes pass through. */
+export function languageName(code: string): string {
+  return LANGUAGE_NAMES[code as SupportedLanguage] ?? code;
+}
+
 export const CreateExportInput = z.object({
   formats: z.array(ExportFormat).min(1).max(5),
 });
