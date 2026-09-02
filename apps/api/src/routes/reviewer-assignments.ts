@@ -11,6 +11,7 @@ import {
 } from "@lumen/db";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../types.js";
+import { notify } from "@lumen/notify";
 
 const AssignInput = z.object({
   assetIds: z.array(z.string().uuid()).min(1).max(500),
@@ -89,6 +90,29 @@ export function registerReviewerRoutes(app: FastifyInstance, ctx: AppContext) {
       subjectId: input.reviewerId,
       detail: { requested: input.assetIds.length, assigned, skipped: input.assetIds.length - assigned },
     });
+
+    // Notify the reviewer (in-app always; email when SMTP is configured).
+    if (assigned > 0) {
+      const firstAssetId = input.assetIds[0] ?? "";
+      const firstAssetProjectId = owned.get(firstAssetId)?.projectId;
+      try {
+        await notify(
+          db,
+          {
+            organizationId: user.organizationId,
+            userId: input.reviewerId,
+            kind: "review.assigned",
+            title: assigned === 1 ? "1 image assigned to you" : `${assigned} images assigned to you`,
+            body: `${user.name} assigned you ${assigned} image${assigned === 1 ? "" : "s"} for review.`,
+            subjectType: "project",
+            subjectId: firstAssetProjectId ?? firstAssetId,
+          },
+          ctx.emailTransport
+        );
+      } catch (err) {
+        req.log.warn({ err }, "review.assigned notification failed");
+      }
+    }
 
     return reply.code(201).send({ assigned, skipped: input.assetIds.length - assigned });
   });

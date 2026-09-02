@@ -20,6 +20,8 @@ import {
 } from "@lumen/providers";
 import type { AssetStore } from "./storage.js";
 import { recordUsage } from "./usage.js";
+import { notify } from "@lumen/notify";
+import type { EmailTransport } from "@lumen/notify";
 import { readVisionCache, visionCacheKey, visionCacheTtlFromEnv, writeVisionCache } from "./vision-cache.js";
 import { maybeAlertMonthlySpend, spendAlertThresholdFromEnv } from "./spend-alert.js";
 
@@ -37,6 +39,8 @@ export interface DraftDeps {
   cacheTtlSec?: number;
   /** Monthly vision-call alert threshold per org; 0 disables. Defaults from env. */
   spendAlertThreshold?: number;
+  /** Null when SMTP is unconfigured — email leg skipped, in-app rows still written. */
+  emailTransport?: EmailTransport | null;
 }
 
 export interface DraftResult {
@@ -220,6 +224,32 @@ export async function processDraft(
       subjectId: assetId,
       detail: { error: String(err instanceof Error ? err.message : err).slice(0, 500) },
     });
+
+    // Only bother the uploader once the queue has exhausted its retries.
+    const attempts = job.opts?.attempts ?? 3;
+    const isFinalAttempt = (job.attemptsMade ?? 0) + 1 >= attempts;
+    if (isFinalAttempt) {
+      try {
+        await notify(
+          db,
+          {
+            organizationId: orgId,
+            userId: doc.uploadedBy,
+            kind: "draft.failed",
+            title: "AI drafting failed for an image",
+            body: `"${asset.sourceHref ?? assetId}" failed to draft after ${attempts} attempts: ${String(
+              err instanceof Error ? err.message : err
+            ).slice(0, 160)}`,
+            subjectType: "asset",
+            subjectId: assetId,
+          },
+          deps.emailTransport
+        );
+      } catch (notifyErr) {
+        console.warn("[draft] failure notification error:", notifyErr);
+      }
+    }
+
     throw err;
   }
 }

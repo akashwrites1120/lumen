@@ -19,6 +19,8 @@ import { buildEpubArtifact, buildJsonArtifact, type ExportFigure, type ExportInp
 import { buildXlsxArtifact } from "./xlsx.js";
 import { buildHtmlArtifact } from "./html.js";
 import { recordUsage } from "../usage.js";
+import { notify } from "@lumen/notify";
+import type { EmailTransport } from "@lumen/notify";
 import { runAce, runEpubCheck, runHttpValidator, type ValidatorOutcome } from "./validators.js";
 import { isPlausibleAzw3, runAzw3Conversion, type Azw3ConversionResult } from "./azw3.js";
 
@@ -31,6 +33,8 @@ export interface ExportDeps {
   redis: Redis;
   store: AssetStore;
   webhookQueue?: Queue;
+  /** Null when SMTP is unconfigured — email leg skipped, in-app rows still written. */
+  emailTransport?: EmailTransport | null;
 }
 
 interface LoadedExport {
@@ -252,6 +256,7 @@ export async function processExport(
   const exp = expRows[0];
   if (!exp) throw new Error(`export not found: ${exportId}`);
   const { webhookQueue } = deps;
+  let orgIdForNotify: string | null = null;
 
   await db.update(exportsTable).set({ status: "running" }).where(eq(exportsTable.id, exportId));
 
@@ -259,6 +264,7 @@ export async function processExport(
     const loaded = await loadExportData(db, exportId);
     if (!loaded) throw new Error(`export data unavailable: ${exportId}`);
     const { input, organizationId } = loaded;
+    orgIdForNotify = organizationId;
 
     const artifacts: Record<string, Buffer> = {};
     const artifactKeys: Record<string, string> = {};
@@ -327,9 +333,47 @@ export async function processExport(
       formats: exp.formats,
     });
 
+    // In-app notification (source of truth) + best-effort email. The kind
+    // distinguishes a clean build from a validator-gate failure.
+    await notify(
+      db,
+      {
+        organizationId,
+        kind: passed ? "export.completed" : "validator.failed",
+        title: passed
+          ? `Export ready: ${input.project.name}`
+          : `Validation failed: ${input.project.name}`,
+        body: passed
+          ? `${exp.formats.join(", ").toUpperCase()} passed the export gate and are ready to download.`
+          : `The export gate failed for ${exp.formats.join(", ").toUpperCase()}. See the export panel for validator output.`,
+        subjectType: "export",
+        subjectId: exportId,
+      },
+      deps.emailTransport
+    );
+
     return { status: passed ? "completed" : "validation_failed", formats: exp.formats };
   } catch (err) {
     await db.update(exportsTable).set({ status: "failed" }).where(eq(exportsTable.id, exportId));
+    if (orgIdForNotify) {
+      // The job itself failed (not a validator outcome) — still tell the org.
+      try {
+        await notify(
+          db,
+          {
+            organizationId: orgIdForNotify,
+            kind: "export.failed",
+            title: "Export failed",
+            body: `The export job for project ${exp.projectId} failed with an unexpected error. It can be re-requested from the dashboard.`,
+            subjectType: "export",
+            subjectId: exportId,
+          },
+          deps.emailTransport
+        );
+      } catch (notifyErr) {
+        console.warn("[export] failure notification error:", notifyErr);
+      }
+    }
     throw err;
   }
 }

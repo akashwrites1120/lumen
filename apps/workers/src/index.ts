@@ -9,6 +9,7 @@ import { processDraft, type DraftJobData } from "./draft.js";
 import { processExport, type ExportJobData } from "./export/process.js";
 import { processWebhookDelivery, type WebhookJobData } from "./webhook.js";
 import { resolveVisionProviders } from "@lumen/providers";
+import { createEmailTransportFromEnv } from "@lumen/notify";
 import { visionCacheTtlFromEnv } from "./vision-cache.js";
 import { spendAlertThresholdFromEnv } from "./spend-alert.js";
 
@@ -21,6 +22,10 @@ const { db, client: pgClient } = createDb(
 
 const store = createAssetStoreFromEnv();
 const providers = resolveVisionProviders(process.env);
+const emailTransport = createEmailTransportFromEnv();
+console.log(
+  `[workers] email transport: ${emailTransport ? "smtp" : "none (in-app notifications only)"}`
+);
 const draftQueue = new Queue(DRAFT_QUEUE, { connection });
 const webhookQueue = new Queue(WEBHOOK_QUEUE, {
   connection,
@@ -48,6 +53,7 @@ const draftWorker = new Worker<DraftJobData>(
       maxAltChars: Number(process.env.VISION_MAX_ALT_CHARS ?? 125),
       cacheTtlSec: visionCacheTtlFromEnv(),
       spendAlertThreshold: spendAlertThresholdFromEnv(),
+      emailTransport,
     });
   },
   { connection, concurrency: Number(process.env.DRAFT_CONCURRENCY ?? 4) }
@@ -57,7 +63,7 @@ const exportWorker = new Worker<ExportJobData>(
   EXPORT_QUEUE,
   async (job) => {
     console.log(`[export] export ${job.data.exportId} (attempt ${job.attemptsMade + 1})`);
-    return processExport(job, { db, redis: connection, store, webhookQueue });
+    return processExport(job, { db, redis: connection, store, webhookQueue, emailTransport });
   },
   { connection, concurrency: 1 }
 );

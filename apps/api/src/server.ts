@@ -9,6 +9,7 @@ import multipart from "@fastify/multipart";
 import sensible from "@fastify/sensible";
 import { Redis } from "ioredis";
 import { createDb } from "@lumen/db";
+import { createEmailTransportFromEnv } from "@lumen/notify";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerDocumentRoutes, requireSessionUser } from "./routes/documents.js";
@@ -70,6 +71,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     "storage driver selected"
   );
 
+  const emailTransport = createEmailTransportFromEnv();
+  app.log.info(
+    { transport: emailTransport ? "smtp" : "none (in-app only)" },
+    "email transport selected"
+  );
+
   const ctx: AppContext = {
     db,
     storage,
@@ -79,6 +86,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     draftQueue,
     exportQueue,
     webhookQueue,
+    emailTransport,
   };
   app.decorate("ctx", ctx);
   app.decorate("requireUser", (req: FastifyRequest) => requireSessionUser(app, ctx, req));
