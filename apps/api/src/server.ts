@@ -19,6 +19,7 @@ import { registerMetricsRoutes } from "./routes/metrics.js";
 import { registerWebhookRoutes } from "./routes/webhooks.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerReviewerRoutes } from "./routes/reviewer-assignments.js";
+import { registerNotificationRoutes } from "./routes/notifications.js";
 import { createIngestQueue, createDraftQueue, createExportQueue, createWebhookQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
 import { S3Storage, s3ClientFromEnv } from "./storage/s3.js";
@@ -92,6 +93,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerWebhookRoutes(app, ctx);
   registerUsageRoutes(app, ctx);
   registerReviewerRoutes(app, ctx);
+  registerNotificationRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
     const [ingest, draft] = await Promise.all([
