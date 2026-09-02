@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "description": "AI-powered accessibility platform — alt-text generation, image extraction, multi-format conversion with human validation.",
-  "packageManager": "pnpm@10.16.0",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=11"
   },
   "scripts": {
     "dev": "turbo run dev --parallel",
