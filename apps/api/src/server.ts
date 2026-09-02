@@ -17,6 +17,7 @@ import { registerWebhookRoutes } from "./routes/webhooks.js";
 import { createIngestQueue, createDraftQueue, createExportQueue, createWebhookQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
 import { S3Storage, s3ClientFromEnv } from "./storage/s3.js";
+import { RedisRateLimiter } from "./ratelimit.js";
 import type { SessionUser } from "./auth/session.js";
 import type { AppContext } from "./types.js";
 
@@ -63,7 +64,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     "storage driver selected"
   );
 
-  const ctx: AppContext = { db, storage, redis, ingestQueue, draftQueue, exportQueue, webhookQueue };
+  const ctx: AppContext = {
+    db,
+    storage,
+    redis,
+    redisRateLimit: new RedisRateLimiter(redis),
+    ingestQueue,
+    draftQueue,
+    exportQueue,
+    webhookQueue,
+  };
   app.decorate("ctx", ctx);
   app.decorate("requireUser", (req: FastifyRequest) => requireSessionUser(app, ctx, req));
 

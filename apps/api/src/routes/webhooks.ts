@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auditEvents, webhookEndpoints } from "@lumen/db";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../types.js";
+import { RATE_LIMIT_PRESETS } from "../http/rate-limit.js";
 
 const CreateWebhookInput = z.object({
   url: z.string().url().startsWith("https://").or(z.string().url().startsWith("http://localhost")),
@@ -20,11 +21,33 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db } = ctx;
   const requireUser = app.requireUser;
 
-  app.get("/v1/webhooks", async (req, reply) => {
+  // shared guard: ensures an authenticated user then charges the per-org
+  // rate limit. Returns the user on success; null on rate-limit (already
+  // replied with 429).
+  async function authedAndLimited(
+    req: import("fastify").FastifyRequest,
+    reply: import("fastify").FastifyReply,
+    cfg: typeof RATE_LIMIT_PRESETS.webhookCud,
+  ) {
     const user = await requireUser(req);
     if (user.role !== "owner" && user.role !== "admin") {
-      return reply.code(403).send({ error: "forbidden" });
+      reply.code(403).send({ error: "forbidden" });
+      return null;
     }
+    const rl = await ctx.redisRateLimit.hit(`webhook:${user.organizationId}`, cfg);
+    reply.header("X-RateLimit-Remaining", String(rl.remaining));
+    reply.header("X-RateLimit-Reset", String(rl.resetSec));
+    if (!rl.allowed) {
+      reply.header("Retry-After", String(rl.resetSec));
+      reply.code(429).send({ error: "rate_limited", retryAfterSec: rl.resetSec });
+      return null;
+    }
+    return user;
+  }
+
+  app.get("/v1/webhooks", async (req, reply) => {
+    const user = await authedAndLimited(req, reply, RATE_LIMIT_PRESETS.webhookCud);
+    if (!user) return;
     const rows = await db
       .select({
         id: webhookEndpoints.id,
@@ -40,10 +63,8 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post("/v1/webhooks", async (req, reply) => {
-    const user = await requireUser(req);
-    if (user.role !== "owner" && user.role !== "admin") {
-      return reply.code(403).send({ error: "forbidden" });
-    }
+    const user = await authedAndLimited(req, reply, RATE_LIMIT_PRESETS.webhookCud);
+    if (!user) return;
     const input = CreateWebhookInput.parse(req.body);
 
     const secret = `whsec_${randomBytes(24).toString("hex")}`;
@@ -67,15 +88,12 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
       detail: { url: webhook.url, events: webhook.events },
     });
 
-    // the signing secret is only ever shown once, at creation time
     return reply.code(201).send({ webhook: { ...webhook, secret }, eventTypes: WEBHOOK_EVENT_TYPES });
   });
 
   app.post("/v1/webhooks/:id/test", async (req, reply) => {
-    const user = await requireUser(req);
-    if (user.role !== "owner" && user.role !== "admin") {
-      return reply.code(403).send({ error: "forbidden" });
-    }
+    const user = await authedAndLimited(req, reply, RATE_LIMIT_PRESETS.webhookTest);
+    if (!user) return;
     const { id } = req.params as { id: string };
     const owned = await db
       .select()
@@ -97,10 +115,8 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.delete("/v1/webhooks/:id", async (req, reply) => {
-    const user = await requireUser(req);
-    if (user.role !== "owner" && user.role !== "admin") {
-      return reply.code(403).send({ error: "forbidden" });
-    }
+    const user = await authedAndLimited(req, reply, RATE_LIMIT_PRESETS.webhookCud);
+    if (!user) return;
     const { id } = req.params as { id: string };
     const deleted = await db
       .delete(webhookEndpoints)
