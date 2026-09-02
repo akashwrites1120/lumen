@@ -74,6 +74,21 @@ components:
           description: Only present on the create response. Treat as a secret.
         createdAt: { type: string, format: date-time }
 
+    SpotCheck:
+      type: object
+      required: [id, assetId, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        assetId: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
+        documentTitle: { type: string, nullable: true }
+        imageClass: { type: string, nullable: true }
+        status: { type: string, enum: [open, resolved] }
+        decision: { type: string, enum: [approved, rejected], nullable: true }
+        comment: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+
     Export:
       type: object
       required: [id, projectId, formats, status, createdAt]
@@ -109,7 +124,7 @@ paths:
                 password: { type: string, minLength: 8 }
       responses:
         "200":
-          description: Session issued (Set-Cookie: lumen_session)
+          description: "Session issued (Set-Cookie: lumen_session)"
           headers:
             Set-Cookie:
               schema: { type: string }
@@ -378,6 +393,92 @@ paths:
           content:
             text/markdown: {}
         "404": { description: Unknown export }
+
+  /v1/projects/{id}/spot-checks:
+    post:
+      tags: [Review]
+      summary: Open a senior spot-check batch for a ready-to-export project
+      description: |
+        Deterministically samples a fraction (`SPOT_CHECK_RATE`, default 0.1)
+        of the project's approved assets and flags them for a senior second
+        review. Safe to call repeatedly — the same assets get flagged, and
+        already-open checks are never duplicated.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Batch created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rate: { type: number }
+                  eligible: { type: integer }
+                  sampled: { type: integer }
+                  created: { type: integer }
+        "404": { description: Unknown project }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/spot-checks:
+    get:
+      tags: [Review]
+      summary: List spot-checks for the org (default: open only)
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: query
+          name: scope
+          schema: { type: string, enum: [open, all], default: open }
+      responses:
+        "200":
+          description: Spot-check queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rate: { type: number }
+                  checks:
+                    type: array
+                    items: { $ref: "#/components/schemas/SpotCheck" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/spot-checks/{id}/decision:
+    post:
+      tags: [Review]
+      summary: Resolve a spot-check with a senior decision
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approved, rejected] }
+                comment: { type: string, maxLength: 2000 }
+      responses:
+        "201":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  check: { $ref: "#/components/schemas/SpotCheck" }
+        "404": { description: Unknown spot-check }
+        "409": { description: Already resolved }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /v1/org/usage:
     get:

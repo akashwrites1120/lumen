@@ -307,6 +307,45 @@ export const reviewAssignments = pgTable(
   ]
 );
 
+/**
+ * Senior spot-check queue (Phase 3). After a project reaches ready-to-export,
+ * a deterministic sample of approved assets is flagged for a second, senior
+ * review before the export gate opens. Sampling is stable (hash-based) so
+ * re-running does not re-flag the same asset set arbitrarily.
+ */
+export const spotChecks = pgTable(
+  "spot_checks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("open"),
+    decision: text("decision"),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("spot_checks_org_status_idx").on(t.organizationId, t.status),
+    index("spot_checks_project_idx").on(t.projectId),
+    uniqueIndex("spot_checks_asset_open_unique")
+      .on(t.assetId)
+      .where(sql`status = 'open'`),
+  ]
+);
+
 export const notificationKind = pgEnum("notification_kind", [
   "export.completed",
   "export.failed",
@@ -314,6 +353,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "draft.failed",
   "validator.failed",
   "usage.alert",
+  "spot_check.assigned",
 ]);
 
 /**

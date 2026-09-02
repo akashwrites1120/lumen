@@ -21,6 +21,7 @@ import { registerMetricsRoutes } from "./routes/metrics.js";
 import { registerWebhookRoutes } from "./routes/webhooks.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerReviewerRoutes } from "./routes/reviewer-assignments.js";
+import { registerSpotCheckRoutes } from "./routes/spot-checks.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
 import { createIngestQueue, createDraftQueue, createExportQueue, createWebhookQueue, INGEST_QUEUE } from "./queue.js";
 import { LocalDiskStorage } from "./storage/local.js";
@@ -108,6 +109,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerWebhookRoutes(app, ctx);
   registerUsageRoutes(app, ctx);
   registerReviewerRoutes(app, ctx);
+  registerSpotCheckRoutes(app, ctx);
   registerNotificationRoutes(app, ctx);
 
   app.get("/v1/queue/health", async () => {
