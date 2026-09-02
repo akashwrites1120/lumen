@@ -204,6 +204,20 @@ export const api = {
       filename: match?.[1] ?? `compliance-report-${exportId.slice(0, 8)}.json`,
     };
   },
+
+  downloadVpatBlobUrl: async (exportId: string): Promise<{ url: string; filename: string }> => {
+    const res = await fetch(`${API_BASE}/v1/exports/${exportId}/vpat`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new ApiError(res.status, "vpat_fetch_failed");
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      url: URL.createObjectURL(blob),
+      filename: match?.[1] ?? `vpat-${exportId.slice(0, 8)}.md`,
+    };
+  },
 };
 
 export function subscribeProjectEvents(

@@ -100,6 +100,15 @@ export function ExportPanel({ projectId }: { projectId: string }) {
     triggerDownload(url, filename);
   };
 
+  const downloadVpat = async (exportId: string) => {
+    try {
+      const { url, filename } = await api.downloadVpatBlobUrl(exportId);
+      triggerDownload(url, filename);
+    } catch {
+      setError("Could not generate VPAT summary.");
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
@@ -189,6 +198,15 @@ export function ExportPanel({ projectId }: { projectId: string }) {
                       onClick={() => void downloadReport(exp.id)}
                     >
                       <ShieldCheck className="h-3.5 w-3.5" /> Report
+                    </Button>
+                  )}
+                  {exp.status === "completed" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void downloadVpat(exp.id)}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" /> VPAT
                     </Button>
                   )}
                 </div>

@@ -337,7 +337,11 @@ paths:
   /v1/exports/{exportId}/report:
     get:
       tags: [Exports]
-      summary: Download the JSON compliance report for an export
+      summary: Download the signed JSON compliance report for an export
+      description: |
+        The report is HMAC-SHA256 signed (see `X-Lumen-Report-Signature` header
+        and the embedded `signature` object). Verify with the org's
+        `REPORT_SIGNING_KEY` held out-of-band.
       security: [{ sessionCookie: [] }]
       parameters:
         - in: path
@@ -346,9 +350,33 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         "200":
-          description: Compliance report (review summary + validator outcomes)
+          description: Signed compliance report (review summary + validator outcomes)
+          headers:
+            X-Lumen-Report-Signature:
+              schema: { type: string, description: "HMAC-SHA256 hex over the JSON body" }
           content:
             application/json: {}
+        "404": { description: Unknown export }
+
+  /v1/exports/{exportId}/vpat:
+    get:
+      tags: [Exports]
+      summary: Download a VPAT-style compliance summary (Markdown)
+      description: |
+        Human-readable Voluntary Product Accessibility Template summary derived
+        from the same data as the JSON compliance report. Downloadable as draft
+        evidence for legal / procurement reviews.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: exportId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: VPAT summary (Markdown)
+          content:
+            text/markdown: {}
         "404": { description: Unknown export }
 
   /v1/org/usage:

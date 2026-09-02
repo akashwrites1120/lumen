@@ -3,6 +3,11 @@ import { assets, auditEvents, documents, exports as exportsTable, projects, revi
 import { CreateExportInput } from "@lumen/schemas";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../types.js";
+import {
+  buildVpatMarkdown,
+  reportSigningKey,
+  signReport,
+} from "../lib/compliance.js";
 
 async function ownedProject(ctx: AppContext, id: string, organizationId: string) {
   const rows = await ctx.db
@@ -20,6 +25,52 @@ const ARTIFACT_MIME: Record<string, string> = {
   html: "text/html; charset=utf-8",
   azw3: "application/x-mobipocket-ebook",
 };
+
+/**
+ * Loads everything the compliance report (and VPAT summary) needs for an
+ * export: the export, its project, the validator outcomes, and the review
+ * decision histogram for every asset.
+ */
+async function loadReportData(ctx: AppContext, exportId: string) {
+  const rows = await ctx.db
+    .select({ exp: exportsTable, project: projects })
+    .from(exportsTable)
+    .innerJoin(projects, eq(projects.id, exportsTable.projectId))
+    .where(eq(exportsTable.id, exportId))
+    .limit(1);
+  const found = rows[0];
+  if (!found) return null;
+  const { exp, project } = found;
+
+  const validationRows = await ctx.db
+    .select()
+    .from(validations)
+    .where(eq(validations.exportId, exportId));
+
+  const docIds = (
+    await ctx.db.select({ id: documents.id }).from(documents).where(eq(documents.projectId, project.id))
+  ).map((d) => d.id);
+
+  const decisionRows = docIds.length
+    ? await ctx.db
+        .select({ decision: reviews.decision })
+        .from(reviews)
+        .innerJoin(suggestions, eq(suggestions.id, reviews.suggestionId))
+        .innerJoin(assets, eq(assets.id, suggestions.assetId))
+        .where(inArray(assets.documentId, docIds))
+    : [];
+
+  const byType: Record<string, number> = {};
+  for (const r of decisionRows) byType[r.decision] = (byType[r.decision] ?? 0) + 1;
+
+  return {
+    exp,
+    project,
+    validationRows,
+    byType,
+    totalDecisions: decisionRows.length,
+  };
+}
 
 export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db } = ctx;
@@ -156,40 +207,24 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
     const user = await requireUser(req);
     const { exportId } = req.params as { exportId: string };
 
-    const rows = await db
-      .select({ exp: exportsTable, project: projects })
+    const owned = await db
+      .select({ organizationId: projects.organizationId })
       .from(exportsTable)
       .innerJoin(projects, eq(projects.id, exportsTable.projectId))
       .where(and(eq(exportsTable.id, exportId), eq(projects.organizationId, user.organizationId)))
       .limit(1);
-    const found = rows[0];
-    if (!found) return reply.code(404).send({ error: "not_found" });
-    const { exp, project } = found;
+    if (owned.length === 0) return reply.code(404).send({ error: "not_found" });
 
-    const validationRows = await db
-      .select()
-      .from(validations)
-      .where(eq(validations.exportId, exportId));
+    const data = await loadReportData(ctx, exportId);
+    if (!data) return reply.code(404).send({ error: "not_found" });
+    const { exp, project, validationRows, byType, totalDecisions } = data;
 
-    const docIds = (
-      await db.select({ id: documents.id }).from(documents).where(eq(documents.projectId, project.id))
-    ).map((d) => d.id);
-
-    const decisionRows = docIds.length
-      ? await db
-          .select({ decision: reviews.decision })
-          .from(reviews)
-          .innerJoin(suggestions, eq(suggestions.id, reviews.suggestionId))
-          .innerJoin(assets, eq(assets.id, suggestions.assetId))
-          .where(inArray(assets.documentId, docIds))
-      : [];
-
-    const byType: Record<string, number> = {};
-    for (const r of decisionRows) byType[r.decision] = (byType[r.decision] ?? 0) + 1;
+    // Phase 3: PDF/UA coverage joined the gate — reflect it in the standards list.
+    const standards = ["WCAG 2.1 AA", "EPUB Accessibility 1.1", "PDF/UA (ISO 14289-1)"];
 
     const report = {
       generator: "lumen",
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
       project: { id: project.id, name: project.name },
       export: {
@@ -198,7 +233,7 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
         status: exp.status,
         createdAt: exp.createdAt,
       },
-      reviewSummary: { totalDecisions: decisionRows.length, byType },
+      reviewSummary: { totalDecisions, byType },
       validators: validationRows.map((v) => ({
         validator: v.validator,
         format: v.format,
@@ -206,8 +241,14 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
         output: v.output,
         at: v.createdAt,
       })),
-      standards: ["WCAG 2.1 AA", "EPUB Accessibility 1.1", "PDF/UA (pending Phase 3)"],
+      standards,
     };
+
+    // Signed compliance report (Phase 3): the HMAC is computed over the
+    // stable JSON so downstream consumers can verify both authenticity and
+    // integrity using REPORT_SIGNING_KEY.
+    const signature = signReport(report as unknown as Record<string, unknown>, reportSigningKey());
+    const signedReport = { ...report, signature };
 
     await db.insert(auditEvents).values({
       organizationId: user.organizationId,
@@ -215,15 +256,74 @@ export function registerExportRoutes(app: FastifyInstance, ctx: AppContext) {
       action: "export.report_downloaded",
       subjectType: "export",
       subjectId: exportId,
-      detail: null,
+      detail: { signed: true, keyId: signature.keyId },
     });
 
     return reply
       .header("content-type", "application/json")
+      .header("x-lumen-report-signature", signature.value)
       .header(
         "content-disposition",
         `attachment; filename="compliance-report-${exportId.slice(0, 8)}.json"`
       )
-      .send(report);
+      .send(signedReport);
+  });
+
+  app.get("/v1/exports/:exportId/vpat", async (req, reply) => {
+    const user = await requireUser(req);
+    const { exportId } = req.params as { exportId: string };
+
+    const owned = await db
+      .select({ organizationId: projects.organizationId })
+      .from(exportsTable)
+      .innerJoin(projects, eq(projects.id, exportsTable.projectId))
+      .where(and(eq(exportsTable.id, exportId), eq(projects.organizationId, user.organizationId)))
+      .limit(1);
+    if (owned.length === 0) return reply.code(404).send({ error: "not_found" });
+
+    const data = await loadReportData(ctx, exportId);
+    if (!data) return reply.code(404).send({ error: "not_found" });
+    const { exp, project, validationRows, byType } = data;
+
+    const markdown = buildVpatMarkdown({
+      project: { name: project.name },
+      export: {
+        id: exp.id,
+        formats: exp.formats,
+        status: exp.status,
+        createdAt: exp.createdAt,
+      },
+      generatedAt: new Date(),
+      review: {
+        total: Object.values(byType).reduce((a, b) => a + b, 0),
+        approved: byType["approved"] ?? 0,
+        edited: byType["edited"] ?? 0,
+        rejected: byType["rejected"] ?? 0,
+        decorative: byType["decorative"] ?? 0,
+      },
+      validators: validationRows.map((v) => ({
+        validator: v.validator,
+        format: v.format,
+        passed: v.passed as "passed" | "failed" | "skipped",
+      })),
+      standards: ["WCAG 2.1 AA", "EPUB Accessibility 1.1", "PDF/UA (ISO 14289-1)"],
+    });
+
+    await db.insert(auditEvents).values({
+      organizationId: user.organizationId,
+      actorUserId: user.id,
+      action: "export.vpat_downloaded",
+      subjectType: "export",
+      subjectId: exportId,
+      detail: null,
+    });
+
+    return reply
+      .header("content-type", "text/markdown; charset=utf-8")
+      .header(
+        "content-disposition",
+        `attachment; filename="vpat-${exportId.slice(0, 8)}.md"`
+      )
+      .send(markdown);
   });
 }
