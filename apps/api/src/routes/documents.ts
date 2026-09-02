@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { auditEvents, documents, projects } from "@lumen/db";
-import { MAX_UPLOAD_BYTES, ProgressEvent } from "@lumen/schemas";
+import { LanguageInput, MAX_UPLOAD_BYTES, ProgressEvent } from "@lumen/schemas";
 import type { FastifyInstance, FastifyRequest } from "fastify";import { publishProgress } from "../events.js";
 import { INGEST_QUEUE } from "../queue.js";
 import { scanBuffer } from "../security/scan.js";
@@ -77,8 +77,33 @@ async function uploadDocument(
   const project = await ownedProjectOr404(ctx, id, user.organizationId);
   if (!project) return { statusCode: 404, body: { error: "not_found" } };
 
-  const file = await req.file({ limits: { fileSize: MAX_UPLOAD_BYTES } });
+  // Phase 3 i18n: optional multipart `language` field selects the alt-text
+  // output language (defaults to "en"). Iterating parts (instead of the
+  // first-file shortcut) guarantees the field is readable regardless of the
+  // client's part ordering.
+  let language = "en";
+  let file: Awaited<ReturnType<FastifyRequest["file"]>> = undefined;
+
+  for await (const part of req.parts({ limits: { fileSize: MAX_UPLOAD_BYTES } })) {
+    if (part.type === "file") {
+      file = part as unknown as Awaited<ReturnType<FastifyRequest["file"]>>;
+      break;
+    }
+    if (part.fieldname === "language") {
+      language = String(part.value ?? "en");
+    }
+  }
+
   if (!file) return { statusCode: 400, body: { error: "file_required" } };
+
+  const parsedLang = LanguageInput.safeParse(language);
+  if (!parsedLang.success) {
+    return {
+      statusCode: 400,
+      body: { error: "unsupported_language", detail: `Supported: ${LanguageInput.options.join(", ")}` },
+    };
+  }
+  language = parsedLang.data;
 
   const lowerName = file.filename.toLowerCase();
   const accepted = ACCEPTED_TYPES.find(
@@ -126,6 +151,7 @@ async function uploadDocument(
       checksumSha256: stored.checksumSha256,
       storageKey: stored.storageKey,
       state: "uploaded",
+      language,
       uploadedBy: user.id,
     })
     .returning();

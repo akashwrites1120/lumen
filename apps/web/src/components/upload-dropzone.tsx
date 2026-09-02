@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CloudUpload, FileCheck2 } from "lucide-react";
+import { CloudUpload, FileCheck2, Languages } from "lucide-react";
 import { toast } from "sonner";
+import { SUPPORTED_LANGUAGES, languageName } from "@lumen/schemas";
 import { api, ApiError } from "@/lib/api";
 import type { DocumentRow } from "@/lib/types";
 
@@ -17,6 +18,7 @@ export function UploadDropzone({
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = React.useState(false);
   const [progress, setProgress] = React.useState<number | null>(null);
+  const [language, setLanguage] = React.useState<string>("en");
 
   async function handleFiles(files: FileList | null) {
     const file = files?.[0];
@@ -30,8 +32,10 @@ export function UploadDropzone({
     }
     setProgress(0);
     try {
-      const res = await api.uploadDocument(projectId, file, setProgress);
-      toast.success(`${file.name} queued for ingest`);
+      const res = await api.uploadDocument(projectId, file, language, setProgress);
+      toast.success(
+        `${file.name} queued for ingest (alt text in ${languageName(language)})`
+      );
       onUploaded(res.document);
     } catch (err) {
       const msg =
@@ -78,6 +82,27 @@ export function UploadDropzone({
         hidden
         onChange={(e) => void handleFiles(e.target.files)}
       />
+
+      <label
+        className="mb-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
+        aria-label="Alt-text language"
+      >
+        <Languages className="h-3.5 w-3.5" />
+        Alt text in
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="rounded-md border border-input bg-background px-1.5 py-0.5 text-xs text-foreground focus-visible:outline-none"
+        >
+          {SUPPORTED_LANGUAGES.map((code) => (
+            <option key={code} value={code}>
+              {languageName(code)}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <AnimatePresence mode="wait">
         {dragging ? (

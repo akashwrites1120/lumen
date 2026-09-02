@@ -1,4 +1,5 @@
 import type { ImageClass } from "@lumen/schemas";
+import { languageName } from "@lumen/schemas";
 import type { AltTextDraft, DescribeRequest, VisionProvider, VisionInput } from "./types.js";
 
 const CLASSES: ImageClass[] = [
@@ -42,6 +43,11 @@ export class MockVisionProvider implements VisionProvider {
       req.context?.sectionTitle?.trim() ||
       req.context?.documentTitle?.trim() ||
       "the surrounding content";
+    // The mock mirrors the shared prompt contract: alt text in the requested
+    // output language (defaults to English) so offline dev exercises the
+    // same code paths the hosted adapters use.
+    const lang = req.context?.language ?? "en";
+    const langName = languageName(lang);
     const altText =
       imageClass === "chart"
         ? `Chart illustrating ${subject}`
@@ -58,7 +64,7 @@ export class MockVisionProvider implements VisionProvider {
       longDescription:
         req.styleGuide?.includeLongDescription === false
           ? null
-          : `Auto-generated mock description for a ${imageClass} in "${subject}". Replace with a real vision model for production drafts.`,
+          : `Auto-generated mock description (${langName}) for a ${imageClass} in "${subject}". Replace with a real vision model for production drafts.`,
       confidence: 55 + (h % 41),
       provider: this.name,
       model: this.model,

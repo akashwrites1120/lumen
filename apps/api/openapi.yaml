@@ -219,11 +219,18 @@ paths:
                 file:
                   type: string
                   format: binary
+                language:
+                  type: string
+                  enum: [en, es, fr, de, hi]
+                  default: en
+                  description: Alt-text output language (Phase 3 i18n). Optional — defaults to `en`.
                 projectId:
                   type: string
                   format: uuid
       responses:
         "201": { description: Document accepted and queued for ingest }
+        "400":
+          description: Unsupported language code (`unsupported_language`)
         "429": { $ref: "#/components/responses/RateLimited" }
 
   /v1/projects/{id}/exports:

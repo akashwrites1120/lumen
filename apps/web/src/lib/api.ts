@@ -93,6 +93,7 @@ export const api = {
   uploadDocument: (
     projectId: string,
     file: File,
+    language: string,
     onProgress?: (pct: number) => void
   ): Promise<{ document: DocumentRow }> => {
     return new Promise((resolve, reject) => {
@@ -115,6 +116,7 @@ export const api = {
       xhr.onerror = () => reject(new ApiError(0, "network_error"));
       const form = new FormData();
       form.append("file", file);
+      form.append("language", language);
       xhr.send(form);
     });
   },
