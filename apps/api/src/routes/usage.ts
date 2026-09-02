@@ -3,6 +3,13 @@ import { usageEvents } from "@lumen/db";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../types.js";
 
+/** Monthly vision-call alert threshold; 0 disables. Mirrors apps/workers/src/spend-alert.ts. */
+function spendAlertThresholdFromEnv(): number {
+  const raw = Number(process.env.ORG_MONTHLY_VISION_ALERT ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.floor(raw);
+}
+
 /**
  * Per-org usage endpoint. Aggregates the append-only `usage_events`
  * ledger over a window (default: last 30 days) and returns a small
@@ -36,10 +43,26 @@ export function registerUsageRoutes(app: FastifyInstance, ctx: AppContext) {
       else if (r.kind === "webhook_delivery") totals.webhook_deliveries = r.units;
     }
 
+    // Calendar-month view so the dashboard can show spend-alert progress.
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthlyRows = await ctx.db
+      .select({ units: sql<number>`coalesce(sum(${usageEvents.units}), 0)::int` })
+      .from(usageEvents)
+      .where(
+        and(
+          eq(usageEvents.organizationId, user.organizationId),
+          eq(usageEvents.kind, "vision_call"),
+          gte(usageEvents.at, monthStart)
+        )
+      );
+
     return {
       windowDays,
       since: since.toISOString(),
       totals,
+      monthlyVisionCalls: monthlyRows[0]?.units ?? 0,
+      alertThreshold: spendAlertThresholdFromEnv(),
       byKind: rows.map((r) => ({ kind: r.kind, units: r.units, events: r.events })),
     };
   });

@@ -21,6 +21,7 @@ import {
 import type { AssetStore } from "./storage.js";
 import { recordUsage } from "./usage.js";
 import { readVisionCache, visionCacheKey, visionCacheTtlFromEnv, writeVisionCache } from "./vision-cache.js";
+import { maybeAlertMonthlySpend, spendAlertThresholdFromEnv } from "./spend-alert.js";
 
 export interface DraftJobData {
   assetId: string;
@@ -34,6 +35,8 @@ export interface DraftDeps {
   maxAltChars?: number;
   /** Vision result cache TTL in seconds; 0 disables. Defaults from env. */
   cacheTtlSec?: number;
+  /** Monthly vision-call alert threshold per org; 0 disables. Defaults from env. */
+  spendAlertThreshold?: number;
 }
 
 export interface DraftResult {
@@ -159,6 +162,14 @@ export async function processDraft(
     });
 
     emit("drafted", `${result.provider}${fromCache ? " (cache)" : ""} · ${result.confidence}% · ${lane} lane`);
+
+    // Cost control: fire the monthly spend alert after real (billable)
+    // calls. Cached hits add zero units, so checking on them is noise.
+    if (!fromCache) {
+      await maybeAlertMonthlySpend(db, orgId, {
+        threshold: deps.spendAlertThreshold ?? spendAlertThresholdFromEnv(),
+      });
+    }
 
     const prior = await db
       .select({ revision: suggestions.revision })

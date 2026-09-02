@@ -313,6 +313,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "review.assigned",
   "draft.failed",
   "validator.failed",
+  "usage.alert",
 ]);
 
 /**
