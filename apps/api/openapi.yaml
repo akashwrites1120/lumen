@@ -1,0 +1,222 @@
+openapi: 3.1.0
+info:
+  title: Lumen API (Beta)
+  version: 0.2.0-beta
+  summary: AI-powered accessibility platform — alt-text, ingest, review, export.
+  description: |
+    ## Beta notice
+
+    This API is in **public beta**. Endpoints, request bodies, and response
+    shapes may change before GA. The following are stable enough to integrate
+    against today:
+
+    - **Idempotency keys** on `POST /v1/documents` (24h replay window) — the
+      `Idempotency-Key` header is the only thing keeping a retried upload
+      from creating a duplicate document.
+    - **Webhooks** at `POST /v1/webhooks` — signed with HMAC-SHA256 using
+      the per-endpoint `secret` returned once at creation. The
+      `X-Lumen-Signature` header carries `t=<unix>,v1=<hex>`.
+    - **Rate limits** — every endpoint advertises `X-RateLimit-*` headers
+      and returns `429` with `Retry-After` when the per-org window is full.
+
+    Anything not listed above may move. Pin your SDK or codegen to the
+    OpenAPI version, not to a path.
+
+servers:
+  - url: http://localhost:4000
+    description: Local dev
+  - url: https://api.lumen.example/v1
+    description: Production (placeholder — replace before launch)
+
+tags:
+  - name: Auth
+  - name: Projects
+  - name: Documents
+  - name: Review
+  - name: Exports
+  - name: Metrics
+  - name: Events
+  - name: Webhooks
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: lumen_session
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema: { type: string, maxLength: 255 }
+      description: Replay-safe upload token; same key + same body returns the original response.
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        retryAfterSec: { type: integer, nullable: true }
+    Webhook:
+      type: object
+      required: [id, url, events, active, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items: { type: string, enum: ["*", "document.ingested", "export.completed"] }
+        active: { type: boolean }
+        secret:
+          type: string
+          description: Only present on the create response. Treat as a secret.
+        createdAt: { type: string, format: date-time }
+
+paths:
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Email + password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Session issued (Set-Cookie: lumen_session)
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        "401": { description: Invalid credentials, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks for the caller's org
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhooks:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook endpoint
+      description: |
+        The signing `secret` is returned **only** on this response. Store it
+        immediately — the server does not retain it in retrievable form.
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  description: Must be https:// or http://localhost.
+                events:
+                  type: array
+                  items: { type: string, enum: ["*", "document.ingested", "export.completed"] }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhook: { $ref: "#/components/schemas/Webhook" }
+                  eventTypes:
+                    type: array
+                    items: { type: string }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/webhooks/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Queue a synthetic "ping" delivery
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202": { description: Queued }
+        "404": { description: Not found }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/webhooks/{id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook endpoint
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Deleted }
+        "404": { description: Not found }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/documents:
+    post:
+      tags: [Documents]
+      summary: Upload a document (multipart)
+      description: |
+        Send the file as `multipart/form-data` with the field name `file`.
+        Send an `Idempotency-Key` header to make the request replay-safe:
+        the same key + same body within 24h returns the original document
+        instead of creating a duplicate.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                projectId:
+                  type: string
+                  format: uuid
+      responses:
+        "201": { description: Document accepted and queued for ingest }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+responses:
+  RateLimited:
+    description: Per-org rate limit exceeded
+    headers:
+      Retry-After:
+        schema: { type: integer }
+      X-RateLimit-Remaining:
+        schema: { type: integer }
+      X-RateLimit-Reset:
+        schema: { type: integer }
+    content:
+      application/json:
+        schema: { $ref: "#/components/schemas/Error" }

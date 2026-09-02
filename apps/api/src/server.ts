@@ -1,4 +1,7 @@
 import "dotenv/config";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { Queue } from "bullmq";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -92,6 +95,35 @@ export async function buildApp(): Promise<FastifyInstance> {
       draftQueue.getJobCounts(),
     ]);
     return { ingest: { queue: INGEST_QUEUE, counts: ingest }, draft: { counts: draft } };
+  });
+
+  // OpenAPI spec served from disk so the YAML is the single source of truth.
+  // Path is resolved relative to the compiled file so it works under both
+  // `tsx watch` (src/) and `node dist/`.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const openapiPath = resolve(here, "..", "openapi.yaml");
+  app.get("/openapi.yaml", async (_req, reply) => {
+    const body = await readFile(openapiPath, "utf8");
+    reply.type("application/yaml").send(body);
+  });
+
+  app.get("/docs", async (_req, reply) => {
+    reply.type("text/html; charset=utf-8").send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Lumen API (Beta)</title></head>
+<body style="font-family:system-ui;max-width:720px;margin:3rem auto;padding:0 1rem;line-height:1.5">
+<h1>Lumen API <small style="color:#b45309">beta</small></h1>
+<p>This API is in public beta. Endpoints and shapes may change before GA.</p>
+<ul>
+  <li><a href="/openapi.yaml">Download OpenAPI 3.1 spec</a></li>
+  <li>Paste the spec into <a href="https://editor.swagger.io">editor.swagger.io</a> or Redoc to browse.</li>
+</ul>
+<h2>Stable integration surface</h2>
+<ul>
+  <li><code>Idempotency-Key</code> on <code>POST /v1/documents</code> — same key + same body within 24h returns the original document.</li>
+  <li><code>POST /v1/webhooks</code> — receives HMAC-SHA256 signed deliveries (<code>X-Lumen-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>).</li>
+  <li>Per-org rate limits: <code>X-RateLimit-Remaining</code>, <code>X-RateLimit-Reset</code>, <code>Retry-After</code> on 429.</li>
+</ul>
+</body></html>`);
   });
 
   app.addHook("onClose", async () => {
