@@ -1,7 +1,7 @@
 # Lumen
 
 > AI-powered accessibility platform — automated alt-text generation, image extraction,
-> and multi-format conversion (EPUB, Excel, JSON, MOBI). Every output is human-validated
+> and multi-format conversion (EPUB, Excel, HTML, JSON, Kindle/AZW3). Every output is human-validated
 > to meet WCAG, ADA, EPUB Accessibility, and PDF/UA standards.
 
 **AI does 95% of the work. Humans provide 100% of the trust.**
@@ -50,12 +50,22 @@ pnpm db:push
 pnpm dev
 ```
 
-## Phase 0 Scope
+### Optional sidecars
 
-- [x] Repo, CI bootstrap, environments
-- [x] Auth (email + password), orgs, projects CRUD, RBAC roles
-- [x] Upload service with pluggable storage driver (local disk now, S3 later)
-- [x] BullMQ ingest worker: EPUB → canonical IR + extracted image assets
-- [x] Live progress via SSE on the dashboard
+```bash
+# EPUB validators (epubcheck) — point EPUBCHECK_URL at it
+docker compose --profile validators up -d --build
+
+# Kindle (AZW3) conversion (Calibre) — set AZW3_ENABLED=true + AZW3_CONVERT_URL
+docker compose --profile converters up -d --build
+
+# S3-compatible storage for local dev — set STORAGE_DRIVER=s3 + S3_BUCKET
+docker compose --profile s3 up -d
+```
+
+Email notifications are in-app only until `SMTP_HOST` is configured; for local
+testing, [Mailpit](https://github.com/axllent/mailpit) works out of the box.
+
+
 
 See [Status](docs/05-status.md) for the full roadmap.
