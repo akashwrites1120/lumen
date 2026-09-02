@@ -9,6 +9,7 @@ import {
   FileCode,
   FileJson,
   FileSpreadsheet,
+  FileText,
   BookOpen,
   Lock,
   Loader2,
@@ -134,6 +135,7 @@ export function ExportPanel({ projectId }: { projectId: string }) {
             { id: "xlsx", label: "XLSX", Icon: FileSpreadsheet },
             { id: "html", label: "HTML", Icon: FileCode },
             { id: "azw3", label: "Kindle (AZW3)", Icon: BookOpen },
+            { id: "pdf", label: "PDF/UA", Icon: FileText },
           ].map(({ id, label, Icon }) => (
             <button
               key={id}

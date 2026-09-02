@@ -132,19 +132,20 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get("/docs", async (_req, reply) => {
     reply.type("text/html; charset=utf-8").send(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Lumen API (Beta)</title></head>
+<html><head><meta charset="utf-8"><title>Lumen API</title></head>
 <body style="font-family:system-ui;max-width:720px;margin:3rem auto;padding:0 1rem;line-height:1.5">
-<h1>Lumen API <small style="color:#b45309">beta</small></h1>
-<p>This API is in public beta. Endpoints and shapes may change before GA.</p>
+<h1>Lumen API <small style="color:#059669">GA</small></h1>
+<p>AI-powered accessibility platform — alt-text generation, image extraction, and multi-format export (EPUB, XLSX, HTML, JSON, Kindle/AZW3, PDF/UA).</p>
 <ul>
   <li><a href="/openapi.yaml">Download OpenAPI 3.1 spec</a></li>
   <li>Paste the spec into <a href="https://editor.swagger.io">editor.swagger.io</a> or Redoc to browse.</li>
 </ul>
-<h2>Stable integration surface</h2>
+<h2>Integration surface</h2>
 <ul>
   <li><code>Idempotency-Key</code> on <code>POST /v1/documents</code> — same key + same body within 24h returns the original document.</li>
   <li><code>POST /v1/webhooks</code> — receives HMAC-SHA256 signed deliveries (<code>X-Lumen-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>).</li>
   <li>Per-org rate limits: <code>X-RateLimit-Remaining</code>, <code>X-RateLimit-Reset</code>, <code>Retry-After</code> on 429.</li>
+  <li>Compliance reports: <code>GET /v1/exports/:id/report</code> (signed JSON) and <code>GET /v1/exports/:id/vpat</code> (VPAT markdown).</li>
 </ul>
 </body></html>`);
   });

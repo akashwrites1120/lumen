@@ -1,14 +1,13 @@
 openapi: 3.1.0
 info:
-  title: Lumen API (Beta)
-  version: 0.2.0-beta
+  title: Lumen API
+  version: 1.0.0
   summary: AI-powered accessibility platform — alt-text, ingest, review, export.
   description: |
-    ## Beta notice
+    ## GA
 
-    This API is in **public beta**. Endpoints, request bodies, and response
-    shapes may change before GA. The following are stable enough to integrate
-    against today:
+    This API is generally available. The following are the stable integration
+    surface:
 
     - **Idempotency keys** on `POST /v1/documents` (24h replay window) — the
       `Idempotency-Key` header is the only thing keeping a retried upload
@@ -18,9 +17,9 @@ info:
       `X-Lumen-Signature` header carries `t=<unix>,v1=<hex>`.
     - **Rate limits** — every endpoint advertises `X-RateLimit-*` headers
       and returns `429` with `Retry-After` when the per-org window is full.
-
-    Anything not listed above may move. Pin your SDK or codegen to the
-    OpenAPI version, not to a path.
+    - **Compliance reports** — `GET /v1/exports/:id/report` returns a signed
+      JSON compliance report; `GET /v1/exports/:id/vpat` returns a VPAT
+      markdown summary.
 
 servers:
   - url: http://localhost:4000
@@ -97,7 +96,7 @@ components:
         projectId: { type: string, format: uuid }
         formats:
           type: array
-          items: { type: string, enum: [json, epub, xlsx, html, azw3] }
+          items: { type: string, enum: [json, epub, xlsx, html, azw3, pdf] }
         status:
           type: string
           enum: [pending, running, completed, failed, validation_failed]
